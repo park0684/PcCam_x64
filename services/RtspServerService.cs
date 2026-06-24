@@ -292,6 +292,20 @@ namespace PcCam_x64.Services
                     "RTSP 읽기 인증에 사용할 계정이 없습니다.");
             }
 
+            /*
+             * 최신 MediaMTX에서 "any"는 익명 사용자를 의미하는 예약값이다.
+             * 실제 NVR 인증 계정으로 사용하면 인증이 무력화될 수 있으므로 차단한다.
+             */
+            if (string.Equals(
+                    appConfig.Onvif.UserId.Trim(),
+                    "any",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "ONVIF 계정으로 'any'는 사용할 수 없습니다. " +
+                    "'any'는 MediaMTX의 익명 사용자 예약값입니다.");
+            }
+
             if (string.IsNullOrWhiteSpace(
                     appConfig.Onvif.Password))
             {
@@ -301,15 +315,15 @@ namespace PcCam_x64.Services
         }
 
         /// <summary>
-        /// MediaMTX 런타임 설정 파일을 생성한다.
-        ///
-        /// 설정 파일은 사용자별 LocalAppData의 Runtime 폴더에 저장한다.
+        /// 최신 MediaMTX 형식의 런타임 설정 파일을 생성한다.
         ///
         /// 구성 정책:
-        /// - RTSP는 외부 NVR이 접근할 수 있도록 모든 인터페이스에서 수신
-        /// - RTMP는 같은 PC의 FFmpeg만 접근하도록 127.0.0.1로 제한
-        /// - 모든 스트림 경로는 publisher 방식으로 동적 생성
-        /// - RTSP 읽기는 ONVIF 계정과 비밀번호로 인증
+        /// 1. RTSP 서버는 외부 NVR이 접속할 수 있도록 모든 인터페이스에서 수신한다.
+        /// 2. RTMP 서버는 로컬 FFmpeg만 접근하도록 127.0.0.1에만 바인딩한다.
+        /// 3. 로컬 FFmpeg는 인증 없이 publish할 수 있지만 localhost에서만 허용한다.
+        /// 4. 외부 NVR은 ONVIF 계정과 비밀번호로 read만 허용한다.
+        /// 5. PCCAM에서 사용하지 않는 HLS, WebRTC, SRT, MoQ는 비활성화한다.
+        /// 6. 모든 RTSP 경로는 publisher 방식으로 동적으로 생성한다.
         /// </summary>
         private void WriteMediaMtxRuntimeConfig(
             AppConfig appConfig,
@@ -321,6 +335,12 @@ namespace PcCam_x64.Services
                     "appConfig");
             }
 
+            if (appConfig.RtspServer == null)
+            {
+                throw new InvalidOperationException(
+                    "RTSP 서버 설정이 없습니다.");
+            }
+
             if (string.IsNullOrWhiteSpace(configPath))
             {
                 throw new ArgumentException(
@@ -328,6 +348,11 @@ namespace PcCam_x64.Services
                     "configPath");
             }
 
+            /*
+             * 설정 파일 생성 전에 포트와 인증정보를 다시 검증한다.
+             * Start()에서 이미 검증하지만,
+             * 이 메서드가 다른 경로에서 호출되는 경우도 안전하게 처리한다.
+             */
             ValidatePort(
                 appConfig.RtspServer.RtspPort,
                 "RTSP");
@@ -350,11 +375,23 @@ namespace PcCam_x64.Services
                     directory);
             }
 
+            /*
+             * 사용자 입력값을 YAML 큰따옴표 문자열에 안전하게 넣기 위해
+             * 역슬래시, 큰따옴표, 개행문자를 변환한다.
+             */
+            string readUser =
+                EscapeYamlValue(
+                    appConfig.Onvif.UserId.Trim());
+
+            string readPassword =
+                EscapeYamlValue(
+                    appConfig.Onvif.Password);
+
             StringBuilder sb =
                 new StringBuilder();
 
             /*
-             * 운영 단계에서는 info 로그를 사용한다.
+             * MediaMTX 기본 로그 수준.
              */
             sb.AppendLine(
                 "logLevel: info");
@@ -362,55 +399,171 @@ namespace PcCam_x64.Services
             sb.AppendLine();
 
             /*
-             * NVR이나 캠뷰어가 다른 PC에서 접속해야 하므로
-             * RTSP는 전체 네트워크 인터페이스에서 수신한다.
+             * PCCAM에서 사용하지 않는 관리 기능을 명시적으로 비활성화한다.
              */
+            sb.AppendLine(
+                "api: false");
+
+            sb.AppendLine(
+                "metrics: false");
+
+            sb.AppendLine(
+                "pprof: false");
+
+            sb.AppendLine(
+                "playback: false");
+
+            sb.AppendLine();
+
+            /*
+             * 최신 MediaMTX 내부 인증 방식.
+             *
+             * 첫 번째 사용자:
+             * - localhost에서만 사용 가능
+             * - FFmpeg의 publish만 허용
+             * - read 권한은 없음
+             *
+             * 두 번째 사용자:
+             * - ONVIF 계정과 비밀번호 사용
+             * - RTSP read만 허용
+             * - publish 권한은 없음
+             */
+            sb.AppendLine(
+                "authMethod: internal");
+
+            sb.AppendLine(
+                "authInternalUsers:");
+
+            /*
+             * 로컬 FFmpeg publish 권한.
+             *
+             * FFmpeg는 현재
+             * rtmp://127.0.0.1:포트/경로
+             * 형식으로 MediaMTX에 영상을 전달한다.
+             */
+            sb.AppendLine(
+                "  - user: any");
+
+            sb.AppendLine(
+                "    pass:");
+
+            sb.AppendLine(
+                "    ips: [\"127.0.0.1\", \"::1\"]");
+
+            sb.AppendLine(
+                "    permissions:");
+
+            sb.AppendLine(
+                "      - action: publish");
+
+            sb.AppendLine(
+                "        path:");
+
+            /*
+             * 외부 NVR 및 RTSP 클라이언트의 읽기 권한.
+             */
+            sb.AppendLine(
+                "  - user: \"" +
+                readUser +
+                "\"");
+
+            sb.AppendLine(
+                "    pass: \"" +
+                readPassword +
+                "\"");
+
+            sb.AppendLine(
+                "    ips: []");
+
+            sb.AppendLine(
+                "    permissions:");
+
+            sb.AppendLine(
+                "      - action: read");
+
+            sb.AppendLine(
+                "        path:");
+
+            sb.AppendLine();
+
+            /*
+             * RTSP 서버.
+             *
+             * NVR이 다른 PC에서 접속해야 하므로
+             * 모든 네트워크 인터페이스에서 수신한다.
+             */
+            sb.AppendLine(
+                "rtsp: true");
+
             sb.AppendLine(
                 "rtspAddress: \":" +
                 appConfig.RtspServer.RtspPort +
                 "\"");
 
+            sb.AppendLine();
+
             /*
-             * RTMP는 로컬 FFmpeg의 publish 용도로만 사용한다.
+             * RTMP 서버.
+             *
+             * FFmpeg publish 용도로만 사용하므로
+             * 외부 네트워크에는 열지 않고 localhost에만 바인딩한다.
              */
+            sb.AppendLine(
+                "rtmp: true");
+
             sb.AppendLine(
                 "rtmpAddress: \"127.0.0.1:" +
                 appConfig.RtspServer.RtmpPort +
                 "\"");
 
             sb.AppendLine();
+
+            /*
+             * PCCAM에서 사용하지 않는 프로토콜 서버를 비활성화한다.
+             *
+             * 최신 MediaMTX는 일부 프로토콜이 기본 활성화되어 있으므로
+             * 불필요한 포트가 열리지 않도록 명시적으로 false를 지정한다.
+             */
+            sb.AppendLine(
+                "hls: false");
+
+            sb.AppendLine(
+                "webrtc: false");
+
+            sb.AppendLine(
+                "srt: false");
+
+            sb.AppendLine(
+                "moq: false");
+
+            sb.AppendLine();
+
+            /*
+             * 등록되지 않은 모든 경로는 FFmpeg publisher가
+             * 실시간으로 생성할 수 있도록 한다.
+             *
+             * 예:
+             * - poscam
+             * - poscam_sub
+             * - poscam_1
+             * - poscam_1_sub
+             */
+            sb.AppendLine(
+                "pathDefaults:");
+
+            sb.AppendLine(
+                "  source: publisher");
+
+            sb.AppendLine();
+
             sb.AppendLine(
                 "paths:");
 
-            /*
-             * all 경로 설정은 poscam, poscam_sub, poscam_1 등
-             * FFmpeg가 요청하는 경로를 동적으로 허용한다.
-             */
             sb.AppendLine(
-                "  all:");
-
-            sb.AppendLine(
-                "    source: publisher");
+                "  all_others:");
 
             /*
-             * RTSP URL 자체에는 계정정보를 포함하지 않지만,
-             * 실제 RTSP 접속 과정에서는 인증을 요구한다.
-             */
-            sb.AppendLine(
-                "    readUser: \"" +
-                EscapeYamlValue(
-                    appConfig.Onvif.UserId) +
-                "\"");
-
-            sb.AppendLine(
-                "    readPass: \"" +
-                EscapeYamlValue(
-                    appConfig.Onvif.Password) +
-                "\"");
-
-            /*
-             * UTF-8 BOM 없이 저장한다.
-             * MediaMTX가 읽는 설정 파일이므로 인코딩 차이를 최소화한다.
+             * MediaMTX 설정 파일은 UTF-8 BOM 없이 저장한다.
              */
             File.WriteAllText(
                 configPath,
@@ -418,7 +571,7 @@ namespace PcCam_x64.Services
                 new UTF8Encoding(false));
 
             RaiseLog(
-                "MediaMTX 런타임 설정 생성 완료");
+                "MediaMTX 최신 형식 런타임 설정 생성 완료");
         }
 
         /// <summary>
