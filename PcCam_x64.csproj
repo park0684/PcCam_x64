@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{DB32332D-9AE8-4319-B4AE-FC1E852DC055}</ProjectGuid>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>PcCam_x64</RootNamespace>
+    <AssemblyName>PcCam_x64</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationIcon>
+    </ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Deployment" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="infrastructure\AppVersionProvider.cs" />
+    <Compile Include="infrastructure\IniFileHelper.cs" />
+    <Compile Include="infrastructure\PathProvider.cs" />
+    <Compile Include="infrastructure\ProcessRunner.cs" />
+    <Compile Include="infrastructure\SingleInstanceGuard.cs" />
+    <Compile Include="models\AppConfig.cs" />
+    <Compile Include="models\AuthConfig.cs" />
+    <Compile Include="models\AuthResult.cs" />
+    <Compile Include="models\LogCategory.cs" />
+    <Compile Include="models\MonitorInfo.cs" />
+    <Compile Include="models\OnvifConfig.cs" />
+    <Compile Include="models\OperationConfig.cs" />
+    <Compile Include="models\RtspServerConfig.cs" />
+    <Compile Include="models\StartupValidationResult.cs" />
+    <Compile Include="models\StreamConfig.cs" />
+    <Compile Include="models\StreamQualityConfig.cs" />
+    <Compile Include="models\StreamRuntimeStatus.cs" />
+    <Compile Include="presenters\SettingPresenter.cs" />
+    <Compile Include="presenters\TrayPresenter.cs" />
+    <Compile Include="Program.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="services\AuthDllAdapter.cs" />
+    <Compile Include="services\AuthTokenPathProvider.cs" />
+    <Compile Include="services\AutoStartService.cs" />
+    <Compile Include="services\ConfigCryptoService.cs" />
+    <Compile Include="services\ConfigService.cs" />
+    <Compile Include="services\ExternalProcessCleanupService.cs" />
+    <Compile Include="services\FfmpegCommandBuilder.cs" />
+    <Compile Include="services\FfmpegService.cs" />
+    <Compile Include="services\FirewallService.cs" />
+    <Compile Include="services\LogService.cs" />
+    <Compile Include="services\MonitorService.cs" />
+    <Compile Include="services\OnvifDiscoveryService.cs" />
+    <Compile Include="services\OnvifHttpServerService.cs" />
+    <Compile Include="services\OnvifRequestDispatcher.cs" />
+    <Compile Include="services\OnvifSoapResponseBuilder.cs" />
+    <Compile Include="services\PowerPolicyService.cs" />
+    <Compile Include="services\RtspServerService.cs" />
+    <Compile Include="services\RuntimeAuthMonitorService.cs" />
+    <Compile Include="services\StartupValidationService.cs" />
+    <Compile Include="services\StreamRuntimeConfigApplier.cs" />
+    <Compile Include="services\StreamSupervisorService.cs" />
+    <Compile Include="views\ISettingView.cs" />
+    <Compile Include="views\ITrayView.cs" />
+    <Compile Include="views\PasswordPromptForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="views\SettingView.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="views\TrayApplicationContext.cs" />
+    <EmbeddedResource Include="Properties\Resources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+      <SubType>Designer</SubType>
+    </EmbeddedResource>
+    <Compile Include="Properties\Resources.Designer.cs">
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Resources.resx</DependentUpon>
+      <DesignTime>True</DesignTime>
+    </Compile>
+    <None Include="Properties\Settings.settings">
+      <Generator>SettingsSingleFileGenerator</Generator>
+      <LastGenOutput>Settings.Designer.cs</LastGenOutput>
+    </None>
+    <Compile Include="Properties\Settings.Designer.cs">
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Settings.settings</DependentUpon>
+      <DesignTimeSharedInput>True</DesignTimeSharedInput>
+    </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="App.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PccAuthClinet\PccAuthClinet.csproj">
+      <Project>{2cc24347-b432-bbec-19eb-e96997c47edf}</Project>
+      <Name>PccAuthClinet</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <None Include="Resources\PCCAM.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="External\ffmpeg.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="External\mediamtx.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
