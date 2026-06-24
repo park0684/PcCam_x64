@@ -118,28 +118,190 @@ namespace PcCam_x64.Services
         }
 
         /// <summary>
-        /// 송출에 필요한 외부 실행 파일 존재 여부를 검사한다.
+        /// 송출에 필요한 외부 실행 파일의 존재 여부와
+        /// 실행 파일 아키텍처를 검사한다.
         /// </summary>
-        /// <param name="config">현재 설정.</param>
-        /// <param name="result">검사 결과 객체.</param>
         private void ValidateRequiredFiles(
             AppConfig config,
             StartupValidationResult result)
         {
-            if (!File.Exists(_pathProvider.FfmpegExePath))
+            string ffmpegPath =
+                _pathProvider.FfmpegExePath;
+
+            if (!File.Exists(ffmpegPath))
             {
                 result.AddError(
                     "ffmpeg.exe 파일이 없습니다. 위치: " +
-                    _pathProvider.FfmpegExePath);
+                    ffmpegPath);
+            }
+            else
+            {
+                /*
+                 * PcCam_x64에서는 64비트 FFmpeg만 허용한다.
+                 * 실수로 기존 32비트 실행 파일이 배포되는 것을
+                 * 프로그램 시작 단계에서 차단한다.
+                 */
+                ValidateX64Executable(
+                    ffmpegPath,
+                    "FFmpeg",
+                    result);
             }
 
-            string mediaMtxPath = ResolveMediaMtxPath(config);
+            string mediaMtxPath =
+                ResolveMediaMtxPath(config);
 
             if (!File.Exists(mediaMtxPath))
             {
                 result.AddError(
                     "MediaMTX 실행 파일이 없습니다. 위치: " +
                     mediaMtxPath);
+            }
+            else
+            {
+                /*
+                 * 최신 MediaMTX Windows amd64 실행 파일인지 확인한다.
+                 */
+                ValidateX64Executable(
+                    mediaMtxPath,
+                    "MediaMTX",
+                    result);
+            }
+        }
+
+        /// <summary>
+        /// Windows PE 실행 파일이 AMD64(x64) 아키텍처인지 확인한다.
+        ///
+        /// 검사 방식:
+        /// 1. DOS 헤더의 PE 헤더 위치를 읽는다.
+        /// 2. PE 시그니처를 확인한다.
+        /// 3. COFF 헤더의 Machine 값을 읽는다.
+        /// 4. Machine 값이 AMD64(0x8664)인지 확인한다.
+        /// </summary>
+        /// <param name="filePath">
+        /// 검사할 실행 파일의 전체 경로.
+        /// </param>
+        /// <param name="displayName">
+        /// 오류 메시지에 표시할 프로그램 이름.
+        /// </param>
+        /// <param name="result">
+        /// 시작 환경 검사 결과.
+        /// </param>
+        private void ValidateX64Executable(
+            string filePath,
+            string displayName,
+            StartupValidationResult result)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                result.AddError(
+                    displayName +
+                    " 실행 파일 경로가 비어 있습니다.");
+
+                return;
+            }
+
+            try
+            {
+                using (FileStream stream =
+                    new FileStream(
+                        filePath,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.Read))
+                using (BinaryReader reader =
+                    new BinaryReader(stream))
+                {
+                    /*
+                     * PE 파일의 DOS 헤더는 최소 64바이트 이상이다.
+                     * 0x3C 위치에 실제 PE 헤더의 시작 위치가 들어 있다.
+                     */
+                    if (stream.Length < 64)
+                    {
+                        result.AddError(
+                            displayName +
+                            " 실행 파일 형식이 올바르지 않습니다. " +
+                            "파일 크기가 PE 헤더보다 작습니다.");
+
+                        return;
+                    }
+
+                    stream.Position = 0x3C;
+
+                    int peHeaderOffset =
+                        reader.ReadInt32();
+
+                    /*
+                     * PE 헤더 위치 뒤에는
+                     * 시그니처 4바이트와 Machine 2바이트가 있어야 한다.
+                     */
+                    if (peHeaderOffset <= 0 ||
+                        peHeaderOffset + 6 > stream.Length)
+                    {
+                        result.AddError(
+                            displayName +
+                            " 실행 파일의 PE 헤더 위치가 올바르지 않습니다.");
+
+                        return;
+                    }
+
+                    stream.Position =
+                        peHeaderOffset;
+
+                    uint peSignature =
+                        reader.ReadUInt32();
+
+                    /*
+                     * PE 시그니처:
+                     * ASCII "PE\0\0"
+                     * 값: 0x00004550
+                     */
+                    if (peSignature != 0x00004550)
+                    {
+                        result.AddError(
+                            displayName +
+                            " 파일이 올바른 Windows PE 실행 파일이 아닙니다.");
+
+                        return;
+                    }
+
+                    ushort machine =
+                        reader.ReadUInt16();
+
+                    /*
+                     * 주요 Machine 값:
+                     * 0x014C = Intel 386, 32비트
+                     * 0x8664 = AMD64, 64비트
+                     * 0xAA64 = ARM64
+                     */
+                    const ushort imageFileMachineAmd64 =
+                        0x8664;
+
+                    if (machine != imageFileMachineAmd64)
+                    {
+                        result.AddError(
+                            displayName +
+                            " 실행 파일이 x64 버전이 아닙니다. " +
+                            "Machine=0x" +
+                            machine.ToString("X4") +
+                            ", Path=" +
+                            filePath);
+
+                        return;
+                    }
+
+                    _logService.WriteApp(
+                        displayName +
+                        " x64 실행 파일 확인 완료. " +
+                        "Machine=AMD64, Path=" +
+                        filePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                result.AddError(
+                    displayName +
+                    " 실행 파일 아키텍처를 확인하지 못했습니다. " +
+                    ex.Message);
             }
         }
 
