@@ -47,7 +47,7 @@ namespace PcCam_x64.Services
                 return _responseBuilder.BuildSoapFault("요청 본문이 비어 있습니다.");
 
             if (string.Equals(actionName, "GetDeviceInformation", StringComparison.OrdinalIgnoreCase))
-                return _responseBuilder.BuildGetDeviceInformationResponse();
+                return _responseBuilder.BuildGetDeviceInformationResponse(config, streamNo);
 
             if (string.Equals(actionName, "GetSystemDateAndTime", StringComparison.OrdinalIgnoreCase))
                 return _responseBuilder.BuildGetSystemDateAndTimeResponse();
@@ -132,7 +132,7 @@ namespace PcCam_x64.Services
                  * PC CAM은 실제 IP 카메라는 아니지만, ONVIF 장비로 인식되기 위한
                  * 최소 네트워크 정보를 반환한다.
                  */
-                return _responseBuilder.BuildGetNetworkInterfacesResponse(host);
+                return _responseBuilder.BuildGetNetworkInterfacesResponse(config, host, streamNo);
             }
             return _responseBuilder.BuildSoapFault("지원하지 않는 ONVIF 요청입니다.");
         }

@@ -1,10 +1,12 @@
-﻿using System;
+﻿using PcCam_x64.Models;
+using System;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using System.Xml;
-using PcCam_x64.Models;
 
 namespace PcCam_x64.Services
 {
@@ -28,22 +30,33 @@ namespace PcCam_x64.Services
 
         private bool _isRunning;
         private bool _disposed;
-        private readonly Guid _endpointUuid;
+        private readonly OnvifDeviceIdentityService _deviceIdentityService;
 
         /// <summary>
         /// ONVIF WS-Discovery 서비스를 생성한다.
-        /// 
-        /// Endpoint UUID는 프로그램 실행 중 동일한 ONVIF 장치를 식별하기 위해 사용한다.
-        /// 현재 단계에서는 실행 시점에 생성하며, 향후 장비 고유값 또는 인증토큰 기준으로 고정할 수 있다.
         /// </summary>
-        /// <param name="logService">로그 기록 서비스.</param>
-        public OnvifDiscoveryService(LogService logService)
+        /// <param name="logService">
+        /// 로그 기록 서비스.
+        /// </param>
+        /// <param name="deviceIdentityService">
+        /// 스트림별 고정 ONVIF 장치 식별정보 생성 서비스.
+        /// </param>
+        public OnvifDiscoveryService(
+            LogService logService,
+            OnvifDeviceIdentityService deviceIdentityService)
         {
             if (logService == null)
                 throw new ArgumentNullException("logService");
 
+            if (deviceIdentityService == null)
+            {
+                throw new ArgumentNullException(
+                    "deviceIdentityService");
+            }
+
             _logService = logService;
-            _endpointUuid = Guid.NewGuid();
+
+            _deviceIdentityService = deviceIdentityService;
         }
 
         /// <summary>
@@ -190,9 +203,12 @@ namespace PcCam_x64.Services
                         continue;
 
                     string localHost = ResolveLocalAddressForRemote(remoteEndPoint);
+                    int streamNo = 0;
                     int onvifPort = ResolveOnvifPort(_currentConfig);
                     string responseXml = BuildProbeMatchResponse(
                         requestXml,
+                        _currentConfig,
+                        streamNo,
                         localHost,
                         onvifPort);
 
@@ -335,6 +351,8 @@ namespace PcCam_x64.Services
         /// <returns>ProbeMatch 응답 XML.</returns>
         private string BuildProbeMatchResponse(
             string requestXml,
+            AppConfig config,
+            int streamNo,
             string host,
             int onvifPort)
         {
@@ -342,9 +360,9 @@ namespace PcCam_x64.Services
 
             if (string.IsNullOrWhiteSpace(relatesTo))
                 relatesTo = "uuid:" + Guid.NewGuid().ToString();
-
+            OnvifDeviceIdentity identity = _deviceIdentityService.Create(config, streamNo);
             string messageId = "uuid:" + Guid.NewGuid().ToString();
-            string endpointAddress = "urn:uuid:" + _endpointUuid.ToString();
+            string endpointAddress = "urn:uuid:" + identity.EndpointUuid.ToString();
             string xaddr = "http://" + host + ":" + onvifPort + "/onvif/device_service";
 
             StringBuilder sb = new StringBuilder();
@@ -375,7 +393,7 @@ namespace PcCam_x64.Services
             sb.Append("<d:Types>dn:NetworkVideoTransmitter tds:Device</d:Types>");
             sb.Append("<d:Scopes>");
             sb.Append("onvif://www.onvif.org/type/video_encoder ");
-            sb.Append("onvif://www.onvif.org/name/PC_CAM ");
+            sb.Append("onvif://www.onvif.org/name/" + XmlEscape(identity.DeviceName) + " ");
             sb.Append("onvif://www.onvif.org/location/POS");
             sb.Append("</d:Scopes>");
             sb.Append("<d:XAddrs>" + XmlEscape(xaddr) + "</d:XAddrs>");

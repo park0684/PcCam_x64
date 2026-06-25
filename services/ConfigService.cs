@@ -1,6 +1,5 @@
-﻿using pccam_32.Models;
+﻿using PcCam_x64.Models;
 using PcCam_x64.Infrastructure;
-using PcCam_x64.Models;
 using System;
 using System.Collections.Generic;
 using System.IO;

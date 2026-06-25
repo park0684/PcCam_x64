@@ -100,6 +100,7 @@
     <Compile Include="models\LogCategory.cs" />
     <Compile Include="models\MonitorInfo.cs" />
     <Compile Include="models\OnvifConfig.cs" />
+    <Compile Include="models\OnvifDeviceIdentity.cs" />
     <Compile Include="models\OperationConfig.cs" />
     <Compile Include="models\RtspServerConfig.cs" />
     <Compile Include="models\StartupValidationResult.cs" />
@@ -121,6 +122,7 @@
     <Compile Include="services\FirewallService.cs" />
     <Compile Include="services\LogService.cs" />
     <Compile Include="services\MonitorService.cs" />
+    <Compile Include="services\OnvifDeviceIdentityService.cs" />
     <Compile Include="services\OnvifDiscoveryService.cs" />
     <Compile Include="services\OnvifHttpServerService.cs" />
     <Compile Include="services\OnvifRequestDispatcher.cs" />
