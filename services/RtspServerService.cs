@@ -397,6 +397,22 @@ namespace PcCam_x64.Services
                 "logLevel: info");
 
             sb.AppendLine();
+            /*
+             * 외부 RTSP 리더로 전송할 패킷의 대기열 크기.
+             *
+             * MediaMTX 기본값은 512이지만,
+             * Milestone이 장치 등록이나 스트림 초기화 과정에서
+             * 일시적으로 영상을 늦게 소비할 경우 큐가 가득 차면서
+             * reader is too slow 경고와 프레임 폐기가 발생할 수 있다.
+             *
+             * 우선 1024로 설정하여 순간적인 처리 지연을 흡수한다.
+             * 이 값은 전역 설정이므로 authInternalUsers, rtsp,
+             * paths 등의 하위 항목보다 앞에 위치해야 한다.
+             */
+            sb.AppendLine(
+                "writeQueueSize: 1024");
+
+            sb.AppendLine();
 
             /*
              * PCCAM에서 사용하지 않는 관리 기능을 명시적으로 비활성화한다.
@@ -499,6 +515,19 @@ namespace PcCam_x64.Services
                 "rtspAddress: \":" +
                 appConfig.RtspServer.RtspPort +
                 "\"");
+
+            sb.AppendLine();
+
+            /*
+             * Milestone 연동 안정성 확인을 위해
+             * RTSP 미디어 전송 방식을 TCP로 제한한다.
+             *
+             * RTSP 제어 연결뿐 아니라 RTP 영상 데이터도
+             * TCP 인터리브 방식으로 전송되므로,
+             * UDP 포트 차단이나 UDP 패킷 유실 영향을 제거할 수 있다.
+             */
+            sb.AppendLine(
+                "rtspTransports: [tcp]");
 
             sb.AppendLine();
 

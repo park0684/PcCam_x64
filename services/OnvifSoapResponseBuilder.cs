@@ -20,6 +20,27 @@ namespace PcCam_x64.Services
     /// </summary>
     public class OnvifSoapResponseBuilder
     {
+        private readonly OnvifDeviceIdentityService _deviceIdentityService;
+
+        /// <summary>
+        /// ONVIF SOAP 응답 생성기를 생성한다.
+        /// </summary>
+        /// <param name="deviceIdentityService">
+        /// 스트림별 고정 ONVIF 장치 식별정보 생성 서비스.
+        /// </param>
+        public OnvifSoapResponseBuilder(
+            OnvifDeviceIdentityService deviceIdentityService)
+        {
+            if (deviceIdentityService == null)
+            {
+                throw new ArgumentNullException(
+                    "deviceIdentityService");
+            }
+
+            _deviceIdentityService =
+                deviceIdentityService;
+        }
+
         /// <summary>
         /// SOAP Envelope 시작 문자열을 생성한다.
         /// 
@@ -51,26 +72,42 @@ namespace PcCam_x64.Services
         /// <summary>
         /// ONVIF 장치 정보 응답을 생성한다.
         ///
-        /// NVR은 장치 등록 과정에서 제조사, 모델명,
-        /// 펌웨어 버전, 시리얼 번호 등을 조회할 수 있다.
-        ///
-        /// FirmwareVersion은 별도로 하드코딩하지 않고
-        /// PC CAM 실행 파일의 AssemblyFileVersion을 사용한다.
+        /// PCCAM은 모니터별 Stream을 별도 ONVIF 장치로 제공하므로,
+        /// InstallationId와 StreamNo를 기준으로 서로 다른
+        /// SerialNumber와 HardwareId를 반환한다.
         /// </summary>
+        /// <param name="config">
+        /// 현재 PCCAM 설정.
+        /// </param>
+        /// <param name="streamNo">
+        /// 요청을 받은 ONVIF 포트에 해당하는 스트림 번호.
+        /// </param>
         /// <returns>
         /// GetDeviceInformation SOAP 응답 XML.
         /// </returns>
-        public string BuildGetDeviceInformationResponse()
+        public string BuildGetDeviceInformationResponse(
+            AppConfig config,
+            int streamNo)
         {
-            StringBuilder sb = new StringBuilder();
-            string firmwareVersion = AppVersionProvider.Version;
+            OnvifDeviceIdentity identity =
+                _deviceIdentityService.Create(
+                    config,
+                    streamNo);
+
+            string firmwareVersion =
+                AppVersionProvider.Version;
+
+            StringBuilder sb =
+                new StringBuilder();
+
             sb.Append(CreateEnvelopeStart());
+
             sb.Append("<tds:GetDeviceInformationResponse>");
             sb.Append("<tds:Manufacturer>POSCAM</tds:Manufacturer>");
-            sb.Append("<tds:Model>PC CAM</tds:Model>");
+            sb.Append("<tds:Model>PC CAM x64</tds:Model>");
             sb.Append("<tds:FirmwareVersion>" + XmlEscape(firmwareVersion) + "</tds:FirmwareVersion>");
-            sb.Append("<tds:SerialNumber>PCCAM-LOCAL</tds:SerialNumber>");
-            sb.Append("<tds:HardwareId>PCCAM-32</tds:HardwareId>");
+            sb.Append("<tds:SerialNumber>" + XmlEscape(identity.SerialNumber) + "</tds:SerialNumber>");
+            sb.Append("<tds:HardwareId>" + XmlEscape(identity.HardwareId) + "</tds:HardwareId>");
             sb.Append("</tds:GetDeviceInformationResponse>");
             sb.Append(CreateEnvelopeEnd());
 
@@ -1404,53 +1441,60 @@ namespace PcCam_x64.Services
 
         /// <summary>
         /// ONVIF GetNetworkInterfaces 요청에 대한 응답 XML을 생성한다.
-        /// 
-        /// NVR은 장비 등록 과정에서 장비의 네트워크 인터페이스와 IP 정보를 조회할 수 있다.
-        /// PC CAM은 실제 IP 카메라가 아니므로, ONVIF 서비스 접근에 사용된 host 값을 기준으로
-        /// 최소 IPv4 인터페이스 정보를 반환한다.
+        ///
+        /// 각 PCCAM Stream은 별도 가상 ONVIF 장치로 취급하므로,
+        /// 스트림별로 고정된 로컬 관리 가상 MAC 주소를 반환한다.
         /// </summary>
-        /// <param name="host">NVR이 접근 가능한 PC CAM 호스트 주소.</param>
-        /// <returns>GetNetworkInterfaces SOAP 응답 XML.</returns>
-        public string BuildGetNetworkInterfacesResponse(string host)
+        /// <param name="config">
+        /// 현재 PCCAM 설정.
+        /// </param>
+        /// <param name="host">
+        /// NVR이 접근한 PCCAM 호스트 주소.
+        /// </param>
+        /// <param name="streamNo">
+        /// 현재 ONVIF 포트에 해당하는 스트림 번호.
+        /// </param>
+        /// <returns>
+        /// GetNetworkInterfaces SOAP 응답 XML.
+        /// </returns>
+        public string BuildGetNetworkInterfacesResponse(AppConfig config, string host, int streamNo)
         {
-            string ipAddress = NormalizeHost(host);
+            string ipAddress =
+        NormalizeHost(host);
+
+            OnvifDeviceIdentity identity = _deviceIdentityService.Create(config, streamNo);
 
             StringBuilder sb = new StringBuilder();
 
             sb.Append(CreateEnvelopeStart());
-
             sb.Append("<tds:GetNetworkInterfacesResponse>");
             sb.Append("<tds:NetworkInterfaces token=\"eth0\">");
-
             sb.Append("<tt:Enabled>true</tt:Enabled>");
-
             sb.Append("<tt:Info>");
             sb.Append("<tt:Name>eth0</tt:Name>");
-            sb.Append("<tt:HwAddress>00:00:00:00:00:00</tt:HwAddress>");
+            sb.Append("<tt:HwAddress>" + XmlEscape(identity.MacAddress) + "</tt:HwAddress>");
             sb.Append("<tt:MTU>1500</tt:MTU>");
             sb.Append("</tt:Info>");
-
             sb.Append("<tt:IPv4>");
             sb.Append("<tt:Enabled>true</tt:Enabled>");
             sb.Append("<tt:Config>");
-
             sb.Append("<tt:Manual>");
             sb.Append("<tt:Address>" + XmlEscape(ipAddress) + "</tt:Address>");
+
+            /*
+             * 현재 단계에서는 기존 정책인 /24를 유지한다.
+             * 이후 실제 NIC 서브넷 마스크를 조회하도록 개선한다.
+             */
             sb.Append("<tt:PrefixLength>24</tt:PrefixLength>");
             sb.Append("</tt:Manual>");
-
             sb.Append("<tt:DHCP>false</tt:DHCP>");
-
             sb.Append("</tt:Config>");
             sb.Append("</tt:IPv4>");
-
             sb.Append("<tt:IPv6>");
             sb.Append("<tt:Enabled>false</tt:Enabled>");
             sb.Append("</tt:IPv6>");
-
             sb.Append("</tds:NetworkInterfaces>");
             sb.Append("</tds:GetNetworkInterfacesResponse>");
-
             sb.Append(CreateEnvelopeEnd());
 
             return sb.ToString();

@@ -65,7 +65,7 @@ namespace PcCam_x64
 
             TrayApplicationContext trayView = null;
             TrayPresenter trayPresenter = null;
-
+            OnvifDeviceIdentityService onvifDeviceIdentityService = null;
             try
             {
                 /*
@@ -304,54 +304,78 @@ namespace PcCam_x64
                 powerPolicyService = new PowerPolicyService();
                 autoStartService = new AutoStartService();
                 firewallService = new FirewallService(logService);
+                /*
+                 * ONVIF 가상 장치 식별정보 생성 서비스.
+                 *
+                 * InstallationId와 StreamNo를 기준으로
+                 * Endpoint UUID, SerialNumber, HardwareId,
+                 * 가상 MAC 주소를 고정 생성한다.
+                 */
+                onvifDeviceIdentityService =
+                    new OnvifDeviceIdentityService();
 
                 /*
-                 * ONVIF 서비스 생성.
-                 * 
-                 * OnvifSoapResponseBuilder:
-                 * - SOAP XML 응답 생성
-                 * 
-                 * OnvifRequestDispatcher:
-                 * - 요청 종류에 따라 응답 생성 메서드 분기
-                 * 
-                 * OnvifHttpServerService:
-                 * - 실제 TCP 포트에서 ONVIF HTTP 요청 수신
+                 * ONVIF SOAP 응답 생성 서비스.
                  */
-                onvifSoapResponseBuilder = new OnvifSoapResponseBuilder();
-
-                onvifRequestDispatcher = new OnvifRequestDispatcher(
-                    onvifSoapResponseBuilder);
-
-                onvifHttpServerService = new OnvifHttpServerService(
-                    onvifRequestDispatcher,
-                    logService);
-
-                onvifDiscoveryService = new OnvifDiscoveryService(logService);
+                onvifSoapResponseBuilder =
+                    new OnvifSoapResponseBuilder(
+                        onvifDeviceIdentityService);
 
                 /*
-                 * 외부 프로세스 실행 서비스 생성.
+                 * ONVIF 요청 분기 서비스.
                  */
-                rtspServerService = new RtspServerService(pathProvider);
-                ffmpegService = new FfmpegService(pathProvider, commandBuilder);
+                onvifRequestDispatcher =
+                    new OnvifRequestDispatcher(
+                        onvifSoapResponseBuilder);
 
                 /*
-                 * 송출 통합 제어 서비스 생성.
-                 * 
-                 * ONVIF HTTP 서버도 송출 생명주기와 함께 관리한다.
-                 * 즉, 송출 시작 시 ONVIF 서버도 시작하고,
-                 * 송출 중지/종료 시 ONVIF 서버도 중지한다.
-                 * 
-                 * 마지막 인수로 runtimeAuthMonitorService를 전달한다.
+                 * ONVIF HTTP 서버.
                  */
-                supervisor = new StreamSupervisorService(
-                    pathProvider,
-                    monitorService,
-                    rtspServerService,
-                    ffmpegService,
-                    authDllAdapter,
-                    onvifHttpServerService,
-                    onvifDiscoveryService,
-                    runtimeAuthMonitorService);
+                onvifHttpServerService =
+                    new OnvifHttpServerService(
+                        onvifRequestDispatcher,
+                        logService);
+
+                /*
+                 * ONVIF WS-Discovery 서비스.
+                 */
+                onvifDiscoveryService =
+                    new OnvifDiscoveryService(
+                        logService,
+                        onvifDeviceIdentityService);
+
+                /*
+                 * 외부 프로세스 실행 서비스.
+                 *
+                 * 중요:
+                 * StreamSupervisorService를 생성하기 전에
+                 * 반드시 MediaMTX와 FFmpeg 서비스를 생성해야 한다.
+                 */
+                rtspServerService =
+                    new RtspServerService(
+                        pathProvider);
+
+                ffmpegService =
+                    new FfmpegService(
+                        pathProvider,
+                        commandBuilder);
+
+                /*
+                 * 송출 통합 제어 서비스.
+                 *
+                 * 위에서 생성한 서비스들이 모두 null이 아닌 상태에서
+                 * StreamSupervisorService에 전달되어야 한다.
+                 */
+                supervisor =
+                    new StreamSupervisorService(
+                        pathProvider,
+                        monitorService,
+                        rtspServerService,
+                        ffmpegService,
+                        authDllAdapter,
+                        onvifHttpServerService,
+                        onvifDiscoveryService,
+                        runtimeAuthMonitorService);
 
                 /*
                  * Supervisor에서 발생하는 로그를 파일 로그로 연결한다.
