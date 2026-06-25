@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -102,6 +102,8 @@
     <Compile Include="models\OnvifConfig.cs" />
     <Compile Include="models\OnvifDeviceIdentity.cs" />
     <Compile Include="models\OperationConfig.cs" />
+    <Compile Include="models\PointerInputMode.cs" />
+    <Compile Include="models\PointerSample.cs" />
     <Compile Include="models\RtspServerConfig.cs" />
     <Compile Include="models\StartupValidationResult.cs" />
     <Compile Include="models\StreamConfig.cs" />
@@ -119,6 +121,7 @@
     <Compile Include="services\ExternalProcessCleanupService.cs" />
     <Compile Include="services\FfmpegCommandBuilder.cs" />
     <Compile Include="services\FfmpegService.cs" />
+    <Compile Include="services\GlobalPointerInputService.cs" />
     <Compile Include="services\FirewallService.cs" />
     <Compile Include="services\LogService.cs" />
     <Compile Include="services\MonitorService.cs" />

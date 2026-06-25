@@ -47,6 +47,7 @@ namespace PcCam_x64
 
             MonitorService monitorService = null;
             FfmpegCommandBuilder commandBuilder = null;
+            GlobalPointerInputService pointerInputService = null;
             AuthDllAdapter authDllAdapter = null;
             RuntimeAuthMonitorService runtimeAuthMonitorService = null;
 
@@ -285,6 +286,59 @@ namespace PcCam_x64
                 commandBuilder = new FfmpegCommandBuilder();
 
                 /*
+                 * 전역 포인터 입력 감지 POC.
+                 *
+                 * PCCAM_POINTER_INPUT_POC=1인 경우에만 후크를 등록한다.
+                 * 일반 운영 실행에는 영향을 주지 않으며,
+                 * 터치 드라이버가 Touch 서명을 전달하는지 로그로 확인한다.
+                 */
+                string pointerInputPocValue =
+                    Environment.GetEnvironmentVariable(
+                        "PCCAM_POINTER_INPUT_POC");
+
+                if (string.Equals(
+                    pointerInputPocValue == null
+                        ? ""
+                        : pointerInputPocValue.Trim(),
+                    "1",
+                    StringComparison.Ordinal))
+                {
+                    pointerInputService =
+                        new GlobalPointerInputService();
+
+                    pointerInputService.PointerPressed +=
+                        delegate (PointerSample sample)
+                        {
+                            try
+                            {
+                                if (logService == null || sample == null)
+                                    return;
+
+                                string inputType = sample.IsTouch
+                                    ? "Touch"
+                                    : "MouseOrPen";
+
+                                logService.WriteApp(
+                                    "[PointerInput] " +
+                                    inputType +
+                                    " Down X=" + sample.ScreenX +
+                                    ", Y=" + sample.ScreenY +
+                                    ", ExtraInfo=0x" +
+                                    sample.ExtraInfo.ToString("X8"));
+                            }
+                            catch
+                            {
+                                // 입력 진단 로그 실패가 후크 동작을 중단시키면 안 된다.
+                            }
+                        };
+
+                    pointerInputService.Start();
+
+                    logService.WriteApp(
+                        "[PointerInput] 전역 입력 감지 POC 시작");
+                }
+
+                /*
                  * 인증 DLL 어댑터.
                  * PccAuthClient.dll을 호출하여 인증 등록, 시작 인증, 실행 중 재인증을 처리한다.
                  */
@@ -459,6 +513,17 @@ namespace PcCam_x64
                 {
                 }
 
+                /*
+                 * 전역 포인터 입력 후크를 다른 서비스보다 먼저 해제한다.
+                 */
+                try
+                {
+                    if (pointerInputService != null)
+                        pointerInputService.Dispose();
+                }
+                catch
+                {
+                }
                 /*
                  * Presenter 먼저 해제한다.
                  * 이벤트 연결을 먼저 끊어야 종료 중 불필요한 UI 호출을 줄일 수 있다.
