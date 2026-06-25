@@ -17,6 +17,10 @@ namespace PcCam_x64.Services
     /// </summary>
     public class FfmpegCommandBuilder
     {
+        private const string TouchOverlayPocEnvironmentVariable = "PCCAM_TOUCH_OVERLAY_POC";
+        private const int TouchOverlayPocMarkerSize = 320;
+        private const int TouchOverlayPocBorderThickness = 6;
+
         /// <summary>
         /// FFmpeg 실행 Arguments를 생성한다.
         /// 
@@ -93,6 +97,9 @@ namespace PcCam_x64.Services
                 useMain,
                 useSub);
 
+            bool useTouchOverlayPoc =
+                IsTouchOverlayPocEnabled(streamConfig);
+
             string inputOptions =
                 "-f gdigrab " +
                 "-draw_mouse 1 " +
@@ -101,6 +108,13 @@ namespace PcCam_x64.Services
                 "-offset_y " + monitorInfo.BoundsY + " " +
                 "-video_size " + monitorInfo.BoundsWidth + "x" + monitorInfo.BoundsHeight + " " +
                 "-i desktop ";
+
+            if (useTouchOverlayPoc)
+            {
+                inputOptions += BuildTouchOverlayPocInputOptions(
+                    monitorInfo,
+                    captureFps);
+            }
 
             /*
              * Main/Sub 둘 다 사용하는 경우.
@@ -121,10 +135,21 @@ namespace PcCam_x64.Services
                     subStream.RtspPath,
                     rtspServerConfig);
 
-                string filterComplex = BuildMainSubFilterComplex(
-                    mainStream,
-                    subStream,
-                    monitorInfo);
+                string filterComplex;
+
+                if (useTouchOverlayPoc)
+                {
+                    filterComplex = BuildMainSubTouchOverlayPocFilterComplex(
+                        subStream,
+                        monitorInfo);
+                }
+                else
+                {
+                    filterComplex = BuildMainSubFilterComplex(
+                        mainStream,
+                        subStream,
+                        monitorInfo);
+                }
 
                 string arguments =
                     inputOptions +
@@ -154,6 +179,22 @@ namespace PcCam_x64.Services
                     mainStream.RtspPath,
                     rtspServerConfig);
 
+                if (useTouchOverlayPoc)
+                {
+                    string filterComplex =
+                        BuildMainTouchOverlayPocFilterComplex();
+
+                    string overlayArguments =
+                        inputOptions +
+                        "-filter_complex \"" + filterComplex + "\" " +
+                        "-map \"[mainout]\" " +
+                        BuildCodecOptions(streamConfig, mainStream) + " " +
+                        BuildRtmpOutputOptions() +
+                        mainUrl;
+
+                    return overlayArguments;
+                }
+
                 string arguments =
                     inputOptions +
                     BuildCodecOptions(streamConfig, mainStream) + " " +
@@ -173,6 +214,24 @@ namespace PcCam_x64.Services
                     subStream.RtspPath,
                     rtspServerConfig);
 
+                if (useTouchOverlayPoc)
+                {
+                    string filterComplex =
+                        BuildSubTouchOverlayPocFilterComplex(
+                            subStream,
+                            monitorInfo);
+
+                    string overlayArguments =
+                        inputOptions +
+                        "-filter_complex \"" + filterComplex + "\" " +
+                        "-map \"[subout]\" " +
+                        BuildCodecOptions(streamConfig, subStream) + " " +
+                        BuildRtmpOutputOptions() +
+                        subUrl;
+
+                    return overlayArguments;
+                }
+
                 string videoFilter = BuildVideoFilterOption(
                     subStream,
                     monitorInfo);
@@ -188,6 +247,133 @@ namespace PcCam_x64.Services
             }
 
             throw new InvalidOperationException("FFmpeg Arguments를 생성할 수 없습니다.");
+        }
+
+        /// <summary>
+        /// 정적 터치 오버레이 POC 사용 여부를 확인한다.
+        ///
+        /// 안전 조건:
+        /// - 환경변수 PCCAM_TOUCH_OVERLAY_POC 값이 정확히 1이어야 한다.
+        /// - 1차 POC 대상인 Stream0에서만 활성화한다.
+        ///
+        /// 이 조건을 만족하지 않으면 기존 FFmpeg 명령을 그대로 사용한다.
+        /// </summary>
+        private bool IsTouchOverlayPocEnabled(
+            StreamConfig streamConfig)
+        {
+            if (streamConfig == null)
+                return false;
+
+            if (streamConfig.StreamNo != 0)
+                return false;
+
+            string value = Environment.GetEnvironmentVariable(
+                TouchOverlayPocEnvironmentVariable);
+
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            return string.Equals(
+                value.Trim(),
+                "1",
+                StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// 정적 POC용 투명 RGBA 오버레이 입력을 생성한다.
+        ///
+        /// 전체 화면 크기의 투명 프레임을 lavfi로 만들고,
+        /// 화면 중앙에 노란색 사각형 테두리를 표시한다.
+        /// 실제 POS 화면에는 그리지 않고 FFmpeg 내부에서만 사용한다.
+        /// </summary>
+        private string BuildTouchOverlayPocInputOptions(
+            MonitorInfo monitorInfo,
+            int captureFps)
+        {
+            if (monitorInfo == null)
+                throw new ArgumentNullException("monitorInfo");
+
+            int markerSize = Math.Min(
+                TouchOverlayPocMarkerSize,
+                Math.Min(
+                    monitorInfo.BoundsWidth,
+                    monitorInfo.BoundsHeight));
+
+            int markerX =
+                Math.Max(
+                    0,
+                    (monitorInfo.BoundsWidth - markerSize) / 2);
+
+            int markerY =
+                Math.Max(
+                    0,
+                    (monitorInfo.BoundsHeight - markerSize) / 2);
+
+            string overlayFilter =
+                "color=c=black@0.0" +
+                ":s=" + monitorInfo.BoundsWidth + "x" + monitorInfo.BoundsHeight +
+                ":r=" + captureFps +
+                ",format=rgba" +
+                ",drawbox=" +
+                "x=" + markerX +
+                ":y=" + markerY +
+                ":w=" + markerSize +
+                ":h=" + markerSize +
+                ":color=magenta@1.0" +
+                ":t=fill" +
+                ":replace=1";
+
+            return "-f lavfi " +
+                   "-i \"" + overlayFilter + "\" ";
+        }
+
+        /// <summary>
+        /// Main/Sub 동시 출력용 정적 오버레이 필터를 생성한다.
+        ///
+        /// 원본 화면과 오버레이를 먼저 한 번 합성한 다음,
+        /// 합성 결과를 Main/Sub로 분기한다.
+        /// </summary>
+        private string BuildMainSubTouchOverlayPocFilterComplex(
+            StreamQualityConfig subStream,
+            MonitorInfo monitorInfo)
+        {
+            string subFilter = BuildSubVideoFilter(
+                subStream,
+                monitorInfo);
+
+            return "[0:v]setpts=PTS-STARTPTS[base];" +
+                   "[1:v]format=rgba,setpts=PTS-STARTPTS[pointer];" +
+                   "[base][pointer]overlay=0:0:eof_action=pass:repeatlast=0[composed];" +
+                   "[composed]split=2[mainraw][subraw];" +
+                   "[mainraw]null[mainout];" +
+                   "[subraw]" + subFilter + "[subout]";
+        }
+
+        /// <summary>
+        /// Main 단독 출력용 정적 오버레이 필터를 생성한다.
+        /// </summary>
+        private string BuildMainTouchOverlayPocFilterComplex()
+        {
+            return "[0:v]setpts=PTS-STARTPTS[base];" +
+                   "[1:v]format=rgba,setpts=PTS-STARTPTS[pointer];" +
+                   "[base][pointer]overlay=0:0:eof_action=pass:repeatlast=0[mainout]";
+        }
+
+        /// <summary>
+        /// Sub 단독 출력용 정적 오버레이 필터를 생성한다.
+        /// </summary>
+        private string BuildSubTouchOverlayPocFilterComplex(
+            StreamQualityConfig subStream,
+            MonitorInfo monitorInfo)
+        {
+            string subFilter = BuildSubVideoFilter(
+                subStream,
+                monitorInfo);
+
+            return "[0:v]setpts=PTS-STARTPTS[base];" +
+                   "[1:v]format=rgba,setpts=PTS-STARTPTS[pointer];" +
+                   "[base][pointer]overlay=0:0:eof_action=pass:repeatlast=0[composed];" +
+                   "[composed]" + subFilter + "[subout]";
         }
 
         /// <summary>
