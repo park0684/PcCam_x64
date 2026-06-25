@@ -1,4 +1,5 @@
-﻿using PcCam_x64.Infrastructure;
+﻿using pccam_32.Models;
+using PcCam_x64.Infrastructure;
 using PcCam_x64.Models;
 using System;
 using System.Collections.Generic;
@@ -53,6 +54,14 @@ namespace PcCam_x64.Services
             if (!configFileExists || IsConfigFileEmpty())
             {
                 AppConfig defaultConfig = AppConfig.CreateDefault();
+
+                /*
+                 * 최초 설치 시 PCCAM 설치 단위의 영구 ID를 생성한다.
+                 *
+                 * 이 값은 이후 ONVIF UUID, SerialNumber,
+                 * HardwareId, 가상 MAC 주소의 기준으로 사용한다.
+                 */
+                EnsureOnvifInstallationId(defaultConfig);
 
                 /*
                  * 최초 설치/최초 실행 시에는 ScreenName이 비어 있을 수 있으므로
@@ -124,6 +133,8 @@ namespace PcCam_x64.Services
             {
                 SaveStream(ini, config.Streams[i]);
             }
+
+            EnsureOnvifInstallationId(config);
 
             SaveOnvif(ini, config.Onvif ?? new OnvifConfig());
             SaveAuth(ini, config.Auth ?? new AuthConfig());
@@ -379,14 +390,22 @@ namespace PcCam_x64.Services
 
         private void LoadOnvif(IniFileHelper ini, AppConfig config)
         {
-            if (config.Onvif == null)
+            if (config.Onvif == null) 
                 config.Onvif = new OnvifConfig();
 
             config.Onvif.IsEnabled = ini.ReadBool("Onvif", "IsEnabled", config.Onvif.IsEnabled);
             config.Onvif.UserId = ini.ReadString("Onvif", "UserId", config.Onvif.UserId);
-            
+
             string savedPassword = ini.ReadString("Onvif", "Password", config.Onvif.Password);
             config.Onvif.Password = ConfigCryptoService.Decrypt(savedPassword);
+
+            /*
+             * 기존 버전의 설정에는 InstallationId 키가 없다.
+             *
+             * 이 경우 빈 문자열로 로드되며,
+             * Load()의 EnsureOnvifInstallationId()에서 새로 생성한다.
+             */
+            config.Onvif.InstallationId = ini.ReadString("Onvif", "InstallationId", config.Onvif.InstallationId);
         }
 
         private void SaveOnvif(IniFileHelper ini, OnvifConfig onvif)
@@ -394,6 +413,7 @@ namespace PcCam_x64.Services
             ini.WriteBool("Onvif", "IsEnabled", onvif.IsEnabled);
             ini.WriteString("Onvif", "UserId", onvif.UserId);
             ini.WriteString("Onvif", "Password", ConfigCryptoService.Encrypt(onvif.Password));
+            ini.WriteString("Onvif", "InstallationId", onvif.InstallationId);
         }
 
         private void LoadAuth(IniFileHelper ini, AppConfig config)
@@ -733,6 +753,70 @@ namespace PcCam_x64.Services
 
             stream.MainStream.IsEnabled = stream.IsEnabled;
             stream.SubStream.IsEnabled = stream.IsEnabled;
+        }
+
+        /// <summary>
+        /// PCCAM 설치 단위의 ONVIF 영구 식별자를 확인하고 보정한다.
+        ///
+        /// 처리 규칙:
+        /// 1. OnvifConfig가 없으면 생성한다.
+        /// 2. InstallationId가 유효한 GUID이면 N 형식으로 정규화한다.
+        /// 3. 값이 없거나 손상되었으면 새로운 GUID를 생성한다.
+        ///
+        /// InstallationId는 이후 다음 값을 만드는 기준으로 사용한다.
+        /// - WS-Discovery Endpoint UUID
+        /// - SerialNumber
+        /// - HardwareId
+        /// - 스트림별 가상 MAC 주소
+        /// </summary>
+        /// <param name="config">
+        /// 보정할 PCCAM 전체 설정.
+        /// </param>
+        private void EnsureOnvifInstallationId(
+            AppConfig config)
+        {
+            if (config == null)
+                return;
+
+            if (config.Onvif == null)
+                config.Onvif = new OnvifConfig();
+
+            string installationId =
+                config.Onvif.InstallationId;
+
+            Guid parsedId;
+
+            /*
+             * Guid.TryParse를 사용하므로 기존 값이
+             * N 형식 또는 D 형식이어도 정상적으로 읽을 수 있다.
+             */
+            if (Guid.TryParse(
+                    installationId,
+                    out parsedId))
+            {
+                /*
+                 * 파일 내 표기 형식을 하나로 통일한다.
+                 *
+                 * N 형식:
+                 * - 하이픈 없음
+                 * - 32자리
+                 */
+                config.Onvif.InstallationId =
+                    parsedId
+                        .ToString("N")
+                        .ToUpperInvariant();
+
+                return;
+            }
+
+            /*
+             * 최초 설치이거나 기존 값이 손상된 경우
+             * 새로운 설치 ID를 생성한다.
+             */
+            config.Onvif.InstallationId =
+                Guid.NewGuid()
+                    .ToString("N")
+                    .ToUpperInvariant();
         }
     }
 }
