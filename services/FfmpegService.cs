@@ -29,7 +29,7 @@ namespace PcCam_x64.Services
 
         private readonly PathProvider _pathProvider;
         private readonly FfmpegCommandBuilder _commandBuilder;
-        private readonly TouchOverlayManager _touchOverlayManager;
+        
 
         private readonly TouchZmqPointerManager _touchZmqPointerManager;
         /*
@@ -54,44 +54,13 @@ namespace PcCam_x64.Services
         /// </summary>
         public event Action<int> Exited;
 
-        /// <summary>
-        /// 터치 포인터 기능을 사용하지 않는 기존 생성자.
-        /// 기존 호출부와의 호환성을 유지한다.
-        /// </summary>
-        public FfmpegService(
-            PathProvider pathProvider,
-            FfmpegCommandBuilder commandBuilder)
-            : this(
-                pathProvider,
-                commandBuilder,
-                null,
-                null)
-        {
-        }
 
         /// <summary>
-        /// 기존 Named Pipe 포인터 관리자만 전달하는 생성자.
-        /// 기존 Program.cs 호출부와의 호환성을 유지한다.
+        /// FFmpeg 실행 서비스와 ZMQ 포인터 관리자를 생성한다.
         /// </summary>
         public FfmpegService(
             PathProvider pathProvider,
             FfmpegCommandBuilder commandBuilder,
-            TouchOverlayManager touchOverlayManager)
-            : this(
-                pathProvider,
-                commandBuilder,
-                touchOverlayManager,
-                null)
-        {
-        }
-
-        /// <summary>
-        /// Named Pipe 관리자와 ZMQ 포인터 관리자를 모두 전달한다.
-        /// </summary>
-        public FfmpegService(
-            PathProvider pathProvider,
-            FfmpegCommandBuilder commandBuilder,
-            TouchOverlayManager touchOverlayManager,
             TouchZmqPointerManager touchZmqPointerManager)
         {
             if (pathProvider == null)
@@ -105,9 +74,6 @@ namespace PcCam_x64.Services
 
             _commandBuilder =
                 commandBuilder;
-
-            _touchOverlayManager =
-                touchOverlayManager;
 
             _touchZmqPointerManager =
                 touchZmqPointerManager;
@@ -242,134 +208,15 @@ namespace PcCam_x64.Services
                     streamConfig,
                     effectiveTouchPointerConfig);
 
-            TouchOverlayPipeSession overlaySession = null;
-            TouchOverlayInput overlayInput = null;
 
-            if (!useTouchZmqPointer && ShouldUseTouchOverlayPipePoc(streamConfig))
-            {
-                /*
-                 * 4K 화면의 raw BGRA 전송량을 줄이기 위해
-                 * 오버레이 입력 FPS는 최대 5fps로 제한한다.
-                 * 원본 화면 캡처 FPS와 출력 FPS는 변경하지 않는다.
-                 */
-                int overlayFrameRate =
-                    Math.Min(
-                        GetCaptureFps(streamConfig),
-                        5);
 
-                /*
-                 * 전체 4K 크기의 BGRA 프레임을 Named Pipe로 전달하면
-                 * 프레임당 약 33MB, 5fps 기준 약 165MB/s가 된다.
-                 *
-                 * 오버레이 프레임은 최대 960x540으로 제한하고
-                 * FFmpeg 필터에서 실제 모니터 해상도로 확대한다.
-                 */
-                int overlayWidth =
-                    Math.Min(
-                        monitorInfo.BoundsWidth,
-                        960);
 
-                int overlayHeight =
-                    Math.Max(
-                        1,
-                        (int)Math.Round(
-                            monitorInfo.BoundsHeight *
-                            (overlayWidth /
-                             (double)monitorInfo.BoundsWidth)));
-
-                if (overlayHeight > 540)
-                {
-                    overlayHeight = 540;
-
-                    overlayWidth =
-                        Math.Max(
-                            1,
-                            (int)Math.Round(
-                                monitorInfo.BoundsWidth *
-                                (overlayHeight /
-                                 (double)monitorInfo.BoundsHeight)));
-                }
-
-                int overlayPointerDiameter =
-                    Math.Max(
-                        24,
-                        (int)Math.Round(
-                            320.0 *
-                            overlayWidth /
-                            monitorInfo.BoundsWidth));
-
-                TouchOverlayFrameRenderer renderer =
-                    new TouchOverlayFrameRenderer(
-                        overlayWidth,
-                        overlayHeight,
-                        overlayPointerDiameter,
-                        3000,
-                        0);
-
-                overlaySession =
-                    new TouchOverlayPipeSession(
-                        streamNo,
-                        overlayWidth,
-                        overlayHeight,
-                        overlayFrameRate,
-                        renderer);
-
-                overlaySession.LogReceived +=
-                    delegate (string line)
-                    {
-                        RaiseLog(
-                            "[Stream" + streamNo +
-                            "][TouchPipe] " +
-                            line);
-                    };
-
-                _touchOverlayManager.RegisterSession(
-                    streamNo,
-                    monitorInfo,
-                    overlaySession);
-
-                try
-                {
-                    overlaySession.Start();
-                    overlayInput =
-                        overlaySession.CreateOverlayInput();
-                }
-                catch
-                {
-                    _touchOverlayManager.UnregisterSession(
-                        streamNo);
-
-                    overlaySession.Dispose();
-                    throw;
-                }
-            }
-
-            string arguments;
-
-            try
-            {
-                arguments = _commandBuilder.BuildArguments(
+            string arguments =
+                _commandBuilder.BuildArguments(
                     streamConfig,
                     monitorInfo,
                     rtspServerConfig,
-                    overlayInput,
                     effectiveTouchPointerConfig);
-            }
-            catch
-            {
-                if (overlaySession != null)
-                {
-                    if (_touchOverlayManager != null)
-                    {
-                        _touchOverlayManager.UnregisterSession(
-                            streamNo);
-                    }
-
-                    overlaySession.Dispose();
-                }
-
-                throw;
-            }
 
             ProcessRunner runner = new ProcessRunner();
 
@@ -391,7 +238,6 @@ namespace PcCam_x64.Services
             FfmpegProcessSlot slot = new FfmpegProcessSlot();
             slot.StreamNo = streamNo;
             slot.Runner = runner;
-            slot.OverlaySession = overlaySession;
             slot.UsesTouchZmqPointer = useTouchZmqPointer;
 
 
@@ -630,6 +476,22 @@ namespace PcCam_x64.Services
             return false;
         }
 
+        /// <summary>
+        /// FFmpeg 서비스에서 발생한 로그를 구독자에게 전달한다.
+        /// </summary>
+        private void RaiseLog(
+            string message)
+        {
+            Action<string> handler =
+                LogReceived;
+
+            if (handler != null)
+            {
+                handler(message);
+            }
+        }
+
+
         private void OnProcessExited(int streamNo, int exitCode)
         {
             FfmpegProcessSlot slot = null;
@@ -644,8 +506,11 @@ namespace PcCam_x64.Services
             }
 
             /*
-             * 비정상 종료에서도 Named Pipe와 공급 작업을 즉시 정리해야
-             * 자동 복구 시 같은 Pipe 이름으로 새 세션을 만들 수 있다.
+             * 비정상 종료에서도 ProcessRunner와
+             * ZMQ 포인터 대상 등록을 즉시 정리한다.
+             *
+             * 자동 복구 시 같은 StreamNo로 새 FFmpeg 프로세스와
+             * 포인터 대상을 안전하게 등록하기 위함이다.
              */
             if (slot != null)
                 DisposeSlot(slot);
@@ -669,16 +534,21 @@ namespace PcCam_x64.Services
              * ZMQ 포인터 관리자가 생성되지 않은 경우에는
              * 설정이 활성화되어 있어도 적용할 수 없다.
              */
-            if (_touchZmqPointerManager == null ||
-                streamConfig == null ||
+            if (streamConfig == null ||
                 touchPointerConfig == null)
             {
                 return false;
             }
 
             /*
-             * 현재 ZMQ 제어 포트가 하나이므로
-             * Stream0에만 적용한다.
+             * 각 Stream은 StreamNo에 따라 별도의 ZMQ 포트를 사용한다.
+             *
+             * Stream0 → 5555
+             * Stream1 → 5556
+             * Stream2 → 5557
+             *
+             * 따라서 StreamNo가 0 이상인 모든 활성 Stream에
+             * 클릭·터치 포인터를 적용할 수 있다.
              */
             if (streamConfig.StreamNo < 0)
                 return false;
@@ -686,78 +556,15 @@ namespace PcCam_x64.Services
             return touchPointerConfig.Enabled;
         }
 
-        /// <summary>
-        /// Stream0 Named Pipe 터치 오버레이 POC 사용 여부를 확인한다.
-        /// </summary>
-        private bool ShouldUseTouchOverlayPipePoc(
-            StreamConfig streamConfig)
-        {
-            if (_touchOverlayManager == null ||
-                streamConfig == null ||
-                streamConfig.StreamNo != 0)
-            {
-                return false;
-            }
-
-            string value =
-                Environment.GetEnvironmentVariable(
-                    "PCCAM_TOUCH_PIPE_POC");
-
-            if (string.IsNullOrWhiteSpace(value))
-                return false;
-
-            return string.Equals(
-                value.Trim(),
-                "1",
-                StringComparison.Ordinal);
-        }
-
-        /// <summary>
-        /// 활성화된 Main/Sub 중 가장 높은 FPS를 구한다.
-        /// 오버레이 FPS 계산에만 사용한다.
-        /// </summary>
-        private int GetCaptureFps(
-            StreamConfig streamConfig)
-        {
-            int fps = 1;
-
-            if (streamConfig == null)
-                return 5;
-
-            if (streamConfig.Fps > fps)
-                fps = streamConfig.Fps;
-
-            if (streamConfig.MainStream != null &&
-                streamConfig.MainStream.IsEnabled &&
-                streamConfig.MainStream.Fps > fps)
-            {
-                fps = streamConfig.MainStream.Fps;
-            }
-
-            if (streamConfig.SubStream != null &&
-                streamConfig.SubStream.IsEnabled &&
-                streamConfig.SubStream.Fps > fps)
-            {
-                fps = streamConfig.SubStream.Fps;
-            }
-
-            return Math.Max(1, fps);
-        }
-        private void RaiseLog(string message)
-        {
-            Action<string> handler = LogReceived;
-
-            if (handler != null)
-                handler(message);
-        }
-
-        private void DisposeSlot(FfmpegProcessSlot slot)
+        private void DisposeSlot(
+            FfmpegProcessSlot slot)
         {
             if (slot == null)
                 return;
+
             /*
              * 이 FFmpeg가 ZMQ 포인터 대상이었다면
-             * ZMQ 좌표 라우팅 등록을 해제한다.
+             * 좌표 라우팅 등록을 해제한다.
              */
             if (slot.UsesTouchZmqPointer &&
                 _touchZmqPointerManager != null)
@@ -769,39 +576,31 @@ namespace PcCam_x64.Services
                 }
                 catch
                 {
+                    /*
+                     * 종료 과정의 포인터 대상 해제 실패가
+                     * 전체 종료를 방해하지 않도록 무시한다.
+                     */
                 }
             }
 
-            if (slot.OverlaySession != null)
-            {
-                try
-                {
-                    if (_touchOverlayManager != null)
-                    {
-                        _touchOverlayManager.UnregisterSession(
-                            slot.StreamNo);
-                    }
-                }
-                catch
-                {
-                }
-
-                try
-                {
-                    slot.OverlaySession.Dispose();
-                }
-                catch
-                {
-                }
-            }
-
+            /*
+             * FFmpeg ProcessRunner의 이벤트와 프로세스 자원을 해제한다.
+             *
+             * Named Pipe 정리 코드를 제거하더라도
+             * Runner.Dispose()는 반드시 유지해야 한다.
+             */
             try
             {
                 if (slot.Runner != null)
+                {
                     slot.Runner.Dispose();
+                }
             }
             catch
             {
+                /*
+                 * 종료 단계의 자원 해제 오류는 외부로 전달하지 않는다.
+                 */
             }
         }
 
@@ -828,7 +627,6 @@ namespace PcCam_x64.Services
         {
             public int StreamNo;
             public ProcessRunner Runner;
-            public TouchOverlayPipeSession OverlaySession;
             public bool UsesTouchZmqPointer;
         }
     }

@@ -20,8 +20,6 @@ namespace PcCam_x64.Services
     /// </summary>
     public sealed class TouchZmqControlService
     {
-        private const string DefaultHost = "127.0.0.1";
-        private const int DefaultBasePort = 5555;
         private readonly string _host;
         private readonly int _basePort;
 
@@ -33,9 +31,6 @@ namespace PcCam_x64.Services
          */
         private static readonly TimeSpan CommandTimeout = TimeSpan.FromMilliseconds(1000);
 
-        private readonly object _syncRoot = new object();
-
-
         /// <summary>
         /// 기본 호스트와 기준 포트를 사용한다.
         ///
@@ -45,8 +40,8 @@ namespace PcCam_x64.Services
         /// </summary>
         public TouchZmqControlService()
             : this(
-                DefaultHost,
-                DefaultBasePort)
+        TouchZmqEndpointPolicy.DefaultHost,
+        TouchZmqEndpointPolicy.DefaultBasePort)
         {
         }
 
@@ -57,23 +52,16 @@ namespace PcCam_x64.Services
             string host,
             int basePort)
         {
-            if (string.IsNullOrWhiteSpace(host))
-            {
-                throw new ArgumentException(
-                    "ZMQ 호스트가 비어 있습니다.",
-                    "host");
-            }
-
-            if (basePort <= 0 ||
-                basePort > 65535)
-            {
-                throw new ArgumentOutOfRangeException(
-                    "basePort",
-                    "ZMQ 기준 포트가 올바르지 않습니다.");
-            }
-
+            /*
+             * FFmpeg 명령 생성과 동일한 엔드포인트 정책으로
+             * 호스트와 기준 포트를 검증한다.
+             */
             _host =
-                host.Trim();
+                TouchZmqEndpointPolicy.NormalizeHost(
+                    host);
+
+            TouchZmqEndpointPolicy.ValidateBasePort(
+                basePort);
 
             _basePort =
                 basePort;
@@ -156,6 +144,12 @@ namespace PcCam_x64.Services
 
         /// <summary>
         /// overlay 원형 포인터 이미지의 좌측 상단 좌표를 변경한다.
+        ///
+        /// 각 호출은 독립적인 RequestSocket을 생성하므로
+        /// 서로 다른 Stream의 ZMQ 명령을 동시에 처리할 수 있다.
+        ///
+        /// 동일 Stream의 표시·숨김 순서는
+        /// TouchZmqPointerManager의 Stream별 CommandSync가 보장한다.
         /// </summary>
         private bool SetPointerPosition(
             int streamNo,
@@ -172,7 +166,9 @@ namespace PcCam_x64.Services
             try
             {
                 endpoint =
-                    BuildEndpoint(
+                    TouchZmqEndpointPolicy.BuildClientEndpoint(
+                        _host,
+                        _basePort,
                         streamNo);
             }
             catch (Exception ex)
@@ -183,88 +179,91 @@ namespace PcCam_x64.Services
                 return false;
             }
 
-            lock (_syncRoot)
+            try
             {
-                try
+                /*
+                 * 각 명령마다 별도의 RequestSocket을 생성한다.
+                 *
+                 * Stream0의 응답 지연이 Stream1 명령까지 막지 않도록
+                 * 서비스 전체를 하나의 lock으로 묶지 않는다.
+                 */
+                using (RequestSocket socket =
+                       new RequestSocket())
                 {
-                    using (RequestSocket socket =
-                           new RequestSocket())
+                    socket.Options.Linger =
+                        TimeSpan.Zero;
+
+                    socket.Connect(
+                        endpoint);
+
+                    string xResponse;
+
+                    if (!SendCommand(
+                            socket,
+                            TargetFilterName +
+                            " x " +
+                            left,
+                            out xResponse,
+                            out errorMessage))
                     {
-                        socket.Options.Linger =
-                            TimeSpan.Zero;
-
-                        socket.Connect(
-                            endpoint);
-
-                        string xResponse;
-
-                        if (!SendCommand(
-                                socket,
-                                TargetFilterName +
-                                " x " +
-                                left,
-                                out xResponse,
-                                out errorMessage))
-                        {
-                            errorMessage =
-                                "StreamNo=" +
-                                streamNo +
-                                ", Endpoint=" +
-                                endpoint +
-                                ", " +
-                                errorMessage;
-
-                            return false;
-                        }
-
-                        string yResponse;
-
-                        if (!SendCommand(
-                                socket,
-                                TargetFilterName +
-                                " y " +
-                                top,
-                                out yResponse,
-                                out errorMessage))
-                        {
-                            errorMessage =
-                                "StreamNo=" +
-                                streamNo +
-                                ", Endpoint=" +
-                                endpoint +
-                                ", " +
-                                errorMessage;
-
-                            return false;
-                        }
-
-                        response =
+                        errorMessage =
                             "StreamNo=" +
                             streamNo +
                             ", Endpoint=" +
                             endpoint +
-                            ", X=[" +
-                            xResponse +
-                            "], Y=[" +
-                            yResponse +
-                            "]";
+                            ", " +
+                            errorMessage;
 
-                        return true;
+                        return false;
                     }
-                }
-                catch (Exception ex)
-                {
-                    errorMessage =
-                        "ZMQ 포인터 명령 전송 중 오류가 발생했습니다. " +
+
+                    string yResponse;
+
+                    if (!SendCommand(
+                            socket,
+                            TargetFilterName +
+                            " y " +
+                            top,
+                            out yResponse,
+                            out errorMessage))
+                    {
+                        errorMessage =
+                            "StreamNo=" +
+                            streamNo +
+                            ", Endpoint=" +
+                            endpoint +
+                            ", " +
+                            errorMessage;
+
+                        return false;
+                    }
+
+                    response =
                         "StreamNo=" +
                         streamNo +
                         ", Endpoint=" +
                         endpoint +
-                        ", Error=" +
-                        ex.Message;
+                        ", X=[" +
+                        xResponse +
+                        "], Y=[" +
+                        yResponse +
+                        "]";
 
-                    return false;
+                    return true;
                 }
+            }
+            catch (Exception ex)
+            {
+                errorMessage =
+                    "ZMQ 포인터 명령 전송 중 오류가 발생했습니다. " +
+                    "StreamNo=" +
+                    streamNo +
+                    ", Endpoint=" +
+                    endpoint +
+                    ", Error=" +
+                    ex.Message;
+
+                return false;
             }
         }
 
@@ -353,43 +352,6 @@ namespace PcCam_x64.Services
                    value.StartsWith(
                        "0\r",
                        StringComparison.Ordinal);
-        }
-
-        /// <summary>
-        /// StreamNo를 기준으로 해당 FFmpeg ZMQ 엔드포인트를 계산한다.
-        ///
-        /// Stream0 → tcp://127.0.0.1:5555
-        /// Stream1 → tcp://127.0.0.1:5556
-        /// </summary>
-        private string BuildEndpoint(
-            int streamNo)
-        {
-            if (streamNo < 0)
-            {
-                throw new ArgumentOutOfRangeException(
-                    "streamNo",
-                    "StreamNo는 0 이상이어야 합니다.");
-            }
-
-            int port =
-                _basePort +
-                streamNo;
-
-            if (port > 65535)
-            {
-                throw new InvalidOperationException(
-                    "StreamNo에 해당하는 ZMQ 포트가 유효 범위를 초과했습니다. " +
-                    "StreamNo=" +
-                    streamNo +
-                    ", Port=" +
-                    port);
-            }
-
-            return
-                "tcp://" +
-                _host +
-                ":" +
-                port;
         }
     }
 }

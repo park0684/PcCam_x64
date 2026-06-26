@@ -261,20 +261,14 @@ namespace PcCam_x64.Services
             if (sample == null)
                 return;
 
-            /*
-             * 다중 모니터 좌표 체계 확인용 임시 로그.
-             * 보조 모니터 클릭 좌표가 MonitorInfo.Bounds와 같은
-             * 물리 픽셀 좌표로 들어오는지 확인한다.
-             */
-            RaiseLog(
-                "[PointerRoute] 입력 좌표. " +
-                "ScreenX=" + sample.ScreenX +
-                ", ScreenY=" + sample.ScreenY);
-
             PointerRequest request = null;
 
             lock (_syncRoot)
             {
+                /*
+                 * 포인터 기능이 비활성화되어 등록된 대상이 없거나
+                 * 관리자가 해제된 상태라면 클릭을 처리하지 않는다.
+                 */
                 if (_disposed ||
                     _targets.Count == 0)
                 {
@@ -284,8 +278,8 @@ namespace PcCam_x64.Services
                 /*
                  * 등록된 Stream들의 모니터 영역을 확인한다.
                  *
-                 * 일반적인 Windows 확장 모니터 구성에서는
-                 * 각 모니터 영역이 겹치지 않으므로 하나만 선택된다.
+                 * Windows 확장 모니터 구성에서는 각 모니터 영역이
+                 * 서로 겹치지 않으므로 하나의 대상만 선택된다.
                  */
                 foreach (KeyValuePair<int, PointerTarget> pair in _targets)
                 {
@@ -331,6 +325,10 @@ namespace PcCam_x64.Services
                     request.ClickSequence =
                         target.ClickSequence;
 
+                    /*
+                     * Windows 가상 화면 좌표를
+                     * 해당 모니터 내부의 로컬 좌표로 변환한다.
+                     */
                     request.LocalX =
                         sample.ScreenX -
                         target.BoundsX;
@@ -353,33 +351,16 @@ namespace PcCam_x64.Services
              * 등록된 어느 모니터에도 포함되지 않은 클릭은 무시한다.
              */
             if (request == null)
-            {
-                RaiseLog(
-                    "[PointerRoute] 입력 좌표와 일치하는 Stream 대상이 없습니다. " +
-                    "ScreenX=" + sample.ScreenX +
-                    ", ScreenY=" + sample.ScreenY);
-
                 return;
-            }
-
-            RaiseLog(
-                "[PointerRoute] Stream 대상 확인. " +
-                "StreamNo=" + request.StreamNo +
-                ", LocalX=" + request.LocalX +
-                ", LocalY=" + request.LocalY);
-
             /*
-             * 전역 입력 후크 콜백에서 ZMQ 통신을 직접 실행하지 않는다.
+             * PointerPressed 이벤트는 GlobalPointerInputService에서
+             * 이미 후크 콜백 외부의 ThreadPool 작업으로 전달된다.
              *
-             * FFmpeg 응답 대기로 입력 후크가 지연되지 않도록
-             * ThreadPool 작업으로 분리한다.
+             * 여기서 다시 ThreadPool에 등록하면 클릭 순서가 한 번 더
+             * 뒤바뀔 가능성이 있으므로 현재 작업에서 바로 처리한다.
              */
-            ThreadPool.QueueUserWorkItem(
-                delegate
-                {
-                    ShowPointerCore(
-                        request);
-                });
+            ShowPointerCore(
+                request);
         }
 
         /// <summary>
@@ -501,16 +482,17 @@ namespace PcCam_x64.Services
                         Timeout.Infinite);
                 }
 
-                RaiseLog(
-                    "[Stream" +
-                    request.StreamNo +
-                    "] ZMQ 포인터 표시. " +
-                    "X=" +
-                    request.LocalX +
-                    ", Y=" +
-                    request.LocalY +
-                    ", Response=" +
-                    response);
+                // 성공시 로그 생성 부분은 테스트 완료 후 폐기
+                //RaiseLog(
+                //    "[Stream" +
+                //    request.StreamNo +
+                //    "] ZMQ 포인터 표시. " +
+                //    "X=" +
+                //    request.LocalX +
+                //    ", Y=" +
+                //    request.LocalY +
+                //    ", Response=" +
+                //    response);
             }
         }
 
@@ -613,12 +595,12 @@ namespace PcCam_x64.Services
                             0;
                     }
                 }
-
-                RaiseLog(
-                    "[Stream" +
-                    timerState.StreamNo +
-                    "] ZMQ 포인터 숨김. Response=" +
-                    response);
+                // 테스트 완료 후 성고 로그 폐기
+                //RaiseLog(
+                //    "[Stream" +
+                //    timerState.StreamNo +
+                //    "] ZMQ 포인터 숨김. Response=" +
+                //    response);
             }
         }
 

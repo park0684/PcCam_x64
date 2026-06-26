@@ -48,7 +48,6 @@ namespace PcCam_x64
             MonitorService monitorService = null;
             FfmpegCommandBuilder commandBuilder = null;
             GlobalPointerInputService pointerInputService = null;
-            TouchOverlayManager touchOverlayManager = null;
             TouchZmqControlService touchZmqControlService = null;
             TouchZmqPointerManager touchZmqPointerManager = null;
 
@@ -315,24 +314,17 @@ namespace PcCam_x64
                 commandBuilder = new FfmpegCommandBuilder();
 
                 /*
-                * 전역 입력 감지 및 클릭·터치 포인터 서비스 생성.
-                *
-                * 실제 ZMQ 포인터 사용 여부는
-                * config.TouchPointer.Enabled 설정으로 결정한다.
-                *
-                * PCCAM_POINTER_INPUT_POC 환경변수는
-                * 좌표 로그 확인용으로만 임시 유지한다.
-                *
-                * PCCAM_TOUCH_PIPE_POC는 기존 Named Pipe 방식의
-                * 비교·진단 목적으로만 유지한다.
-                */
+                 * 전역 입력 감지 및 클릭·터치 포인터 서비스 생성.
+                 *
+                 * 실제 ZMQ 포인터 사용 여부는
+                 * config.TouchPointer.Enabled 설정으로 결정한다.
+                 *
+                 * PCCAM_POINTER_INPUT_POC 환경변수는
+                 * 전역 입력 좌표 확인용 진단 로그에만 사용한다.
+                 */
                 string pointerInputPocValue =
                     Environment.GetEnvironmentVariable(
                         "PCCAM_POINTER_INPUT_POC");
-
-                string touchPipePocValue =
-                    Environment.GetEnvironmentVariable(
-                        "PCCAM_TOUCH_PIPE_POC");
 
                 bool pointerInputPocEnabled =
                     string.Equals(
@@ -341,26 +333,6 @@ namespace PcCam_x64
                             : pointerInputPocValue.Trim(),
                         "1",
                         StringComparison.Ordinal);
-
-                bool touchPipePocEnabled =
-                    string.Equals(
-                        touchPipePocValue == null
-                            ? ""
-                            : touchPipePocValue.Trim(),
-                        "1",
-                        StringComparison.Ordinal);
-
-                /*
-                 * 정식 ZMQ 포인터 기능과 기존 Named Pipe POC를
-                 * 동시에 활성화하지 않는다.
-                 *
-                 * TouchPointer 설정이 활성화된 경우
-                 * 정식 ZMQ 방식을 우선한다.
-                 */
-                if (config.TouchPointer.Enabled)
-                {
-                    touchPipePocEnabled = false;
-                }
 
                 /*
                  * 전역 입력 후크는 프로그램 실행 중 하나만 생성한다.
@@ -410,31 +382,20 @@ namespace PcCam_x64
                 }
 
                 /*
-                 * 기존 Named Pipe 포인터 POC.
-                 *
-                 * 정식 TouchPointer 설정이 활성화된 경우에는
-                 * 위에서 touchPipePocEnabled를 false로 변경했으므로
-                 * 이 관리자는 생성되지 않는다.
-                 */
-                if (touchPipePocEnabled)
-                {
-                    touchOverlayManager =
-                        new TouchOverlayManager(
-                            pointerInputService);
-                }
-
-                /*
                  * FFmpeg ZMQ 명령 전송 서비스.
                  */
                 touchZmqControlService =
                     new TouchZmqControlService();
 
                 /*
-                 * 전역 클릭 좌표를 Stream0 모니터 기준 좌표로 변환하고
-                 * FFmpeg drawbox 위치 변경 명령을 전송하는 관리자.
+                 * 전역 클릭 좌표를 등록된 각 Stream의 모니터 영역과 비교하고,
+                 * 해당 모니터 내부의 로컬 좌표로 변환한다.
                  *
-                 * 현재 TouchPointer.Enabled가 false여도 관리자는 생성한다.
-                 * 실제 대상 등록은 FfmpegService가 송출 시작 시 결정한다.
+                 * 변환된 좌표는 Stream별 ZMQ 포트를 통해
+                 * FFmpeg의 overlay@touch 필터에 전달된다.
+                 *
+                 * TouchPointer.Enabled가 false여도 관리자는 생성하며,
+                 * 실제 Stream 대상 등록은 FfmpegService가 송출 시작 시 결정한다.
                  */
                 touchZmqPointerManager =
                     new TouchZmqPointerManager(
@@ -470,13 +431,11 @@ namespace PcCam_x64
                  * 전역 입력 후크를 시작한다.
                  */
                 pointerInputService.Start();
-
+                
                 logService.WriteApp(
                     "[PointerInput] 전역 입력 감지 시작. " +
                     "LogPoc=" +
                     pointerInputPocEnabled +
-                    ", TouchPipePoc=" +
-                    touchPipePocEnabled +
                     ", TouchPointerEnabled=" +
                     config.TouchPointer.Enabled);
 
@@ -555,7 +514,6 @@ namespace PcCam_x64
                     new FfmpegService(
                         pathProvider,
                         commandBuilder,
-                        touchOverlayManager,
                         touchZmqPointerManager);
 
                 /*
@@ -709,27 +667,15 @@ namespace PcCam_x64
                 catch
                 {
                 }
-
                 /*
                  * FFmpeg 서비스 종료가 끝난 뒤
-                 * ZMQ 포인터 관리자와 Named Pipe 좌표 관리자를 해제한다.
+                 * ZMQ 포인터 관리자를 해제한다.
                  */
                 try
                 {
                     if (touchZmqPointerManager != null)
                     {
                         touchZmqPointerManager.Dispose();
-                    }
-                }
-                catch
-                {
-                }
-
-                try
-                {
-                    if (touchOverlayManager != null)
-                    {
-                        touchOverlayManager.Dispose();
                     }
                 }
                 catch

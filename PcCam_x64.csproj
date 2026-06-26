@@ -177,6 +177,7 @@
     <Compile Include="services\StreamRuntimeConfigApplier.cs" />
     <Compile Include="services\StreamSupervisorService.cs" />
     <Compile Include="services\TouchZmqControlService.cs" />
+    <Compile Include="services\TouchZmqEndpointPolicy.cs" />
     <Compile Include="services\TouchZmqPointerManager.cs" />
     <Compile Include="views\ISettingView.cs" />
     <Compile Include="views\ITrayView.cs" />
