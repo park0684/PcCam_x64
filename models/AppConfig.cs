@@ -34,6 +34,12 @@ namespace PcCam_x64.Models
         public OperationConfig Operation { get; set; } = new OperationConfig();
 
         /// <summary>
+        /// 녹화 및 실시간 송출 영상에 표시할
+        /// 클릭·터치 포인터 설정.
+        /// </summary>
+        public TouchPointerConfig TouchPointer { get; set; } = new TouchPointerConfig();
+
+        /// <summary>
         /// RTSP 서버 설정.
         /// </summary>
         public RtspServerConfig RtspServer { get; set; } = new RtspServerConfig();
@@ -46,7 +52,21 @@ namespace PcCam_x64.Models
         /// </summary>
         public static AppConfig CreateDefault()
         {
-            var config = new AppConfig();
+            AppConfig config =
+                new AppConfig();
+
+            /*
+             * 신규 설치 기본값에서는 터치 포인터를 비활성화한다.
+             * 사용자가 설정 화면에서 명시적으로 활성화한 경우에만
+             * FFmpeg ZMQ 필터를 적용하도록 한다.
+             */
+            config.TouchPointer =
+                new TouchPointerConfig
+                {
+                    Enabled = false,
+                    Diameter = 160,
+                    VisibleMilliseconds = 700
+                };
 
             config.Streams.Add(
                 CreateStreamByIndex(

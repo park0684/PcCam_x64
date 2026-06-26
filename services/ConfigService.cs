@@ -87,6 +87,7 @@ namespace PcCam_x64.Services
             LoadOnvif(ini, config);
             LoadAuth(ini, config);
             LoadOperation(ini, config);
+            LoadTouchPointer(ini, config);
             LoadRtspServer(ini, config);
 
             /*
@@ -138,6 +139,7 @@ namespace PcCam_x64.Services
             SaveOnvif(ini, config.Onvif ?? new OnvifConfig());
             SaveAuth(ini, config.Auth ?? new AuthConfig());
             SaveOperation(ini, config.Operation ?? new OperationConfig());
+            SaveTouchPointer(ini, config.TouchPointer ?? new TouchPointerConfig());
             SaveRtspServer(ini, config.RtspServer ?? new RtspServerConfig());
 
             /*
@@ -462,6 +464,63 @@ namespace PcCam_x64.Services
             ini.WriteBool("Operation", "AutoStart", operation.AutoStart);
             ini.WriteBool("Operation", "PreventSleep", operation.PreventSleep);
             ini.WriteBool("Operation", "AutoStartStreaming", operation.AutoStartStreaming);
+        }
+
+        /// <summary>
+        /// 클릭·터치 포인터 설정을 INI 파일에서 로드한다.
+        ///
+        /// 기존 설정 파일에 TouchPointer 섹션이 없으면
+        /// TouchPointerConfig의 기본값을 그대로 사용한다.
+        /// </summary>
+        private void LoadTouchPointer(IniFileHelper ini, AppConfig config)
+        {
+            if (ini == null)
+                throw new ArgumentNullException("ini");
+
+            if (config == null)
+                throw new ArgumentNullException("config");
+
+            if (config.TouchPointer == null)
+            {
+                config.TouchPointer = new TouchPointerConfig();
+            }
+
+            TouchPointerConfig touchPointer = config.TouchPointer;
+
+            touchPointer.Enabled = ini.ReadBool("TouchPointer", "Enabled", touchPointer.Enabled);
+            touchPointer.Diameter = ini.ReadInt("TouchPointer", "Diameter", touchPointer.Diameter);
+            touchPointer.VisibleMilliseconds = ini.ReadInt("TouchPointer", "VisibleMilliseconds", touchPointer.VisibleMilliseconds);
+
+            /*
+             * 설정 파일이 직접 수정되었거나
+             * 이전 버전에서 잘못된 값이 저장되었을 수 있으므로
+             * 로드 직후 허용 범위로 보정한다.
+             */
+            touchPointer.Normalize();
+        }
+
+        /// <summary>
+        /// 클릭·터치 포인터 설정을 INI 파일에 저장한다.
+        /// </summary>
+        private void SaveTouchPointer(IniFileHelper ini, TouchPointerConfig touchPointer)
+        {
+            if (ini == null)
+                throw new ArgumentNullException("ini");
+
+            if (touchPointer == null)
+            {
+                touchPointer = new TouchPointerConfig();
+            }
+
+            /*
+             * 저장 전에 값의 범위를 다시 확인한다.
+             * 보정된 값이 설정 파일에도 반영되도록 한다.
+             */
+            touchPointer.Normalize();
+
+            ini.WriteBool("TouchPointer", "Enabled", touchPointer.Enabled);
+            ini.WriteInt("TouchPointer", "Diameter", touchPointer.Diameter);
+            ini.WriteInt("TouchPointer", "VisibleMilliseconds", touchPointer.VisibleMilliseconds);
         }
 
         private void LoadRtspServer(IniFileHelper ini, AppConfig config)

@@ -128,6 +128,12 @@ namespace PcCam_x64.Presenters
             _view.PreventSleep = _config.Operation.PreventSleep;
             _view.AutoStartStreaming = _config.Operation.AutoStartStreaming;
 
+            _view.TouchPointerEnabled = _config.TouchPointer.Enabled;
+
+            _view.TouchPointerDiameter = _config.TouchPointer.Diameter;
+
+            _view.TouchPointerVisibleMilliseconds = _config.TouchPointer.VisibleMilliseconds;
+
             RefreshAuthButtonText();
         }
 
@@ -153,6 +159,13 @@ namespace PcCam_x64.Presenters
 
             if (_config.Operation == null)
                 _config.Operation = new OperationConfig();
+
+            if (_config.TouchPointer == null)
+            {
+                _config.TouchPointer = new TouchPointerConfig();
+            }
+
+            _config.TouchPointer.Normalize();
 
             if (_config.RtspServer == null)
                 _config.RtspServer = new RtspServerConfig();
@@ -297,6 +310,19 @@ namespace PcCam_x64.Presenters
             _config.Operation.AutoStart = _view.AutoStart;
             _config.Operation.PreventSleep = _view.PreventSleep;
             _config.Operation.AutoStartStreaming = _view.AutoStartStreaming;
+
+            /*
+             * 클릭·터치 포인터 설정을 View에서 가져온다.
+             */
+            _config.TouchPointer.Enabled = _view.TouchPointerEnabled;
+            _config.TouchPointer.Diameter = _view.TouchPointerDiameter;
+            _config.TouchPointer.VisibleMilliseconds = _view.TouchPointerVisibleMilliseconds;
+
+            /*
+             * 잘못된 값이 설정 객체에 남지 않도록
+             * 저장 전에 허용 범위로 보정한다.
+             */
+            _config.TouchPointer.Normalize();
         }
 
         /// <summary>
@@ -313,6 +339,22 @@ namespace PcCam_x64.Presenters
 
             if (config.Streams == null || config.Streams.Count == 0)
                 throw new InvalidOperationException("스트림 설정이 없습니다.");
+
+            if (config.TouchPointer == null)
+            {
+                throw new InvalidOperationException("클릭·터치 포인터 설정이 없습니다.");
+            }
+
+            if (config.TouchPointer.Diameter < 24 || config.TouchPointer.Diameter > 500)
+            {
+                throw new InvalidOperationException("포인터 크기는 24px 이상 500px 이하로 설정하세요.");
+            }
+
+            if (config.TouchPointer.VisibleMilliseconds < 100 ||
+                config.TouchPointer.VisibleMilliseconds > 5000)
+            {
+                throw new InvalidOperationException("포인터 표시 시간은 100ms 이상 5000ms 이하로 설정하세요.");
+            }
 
             int enabledStreamCount = 0;
 
