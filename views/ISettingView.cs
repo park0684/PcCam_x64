@@ -91,6 +91,24 @@ namespace PcCam_x64.Views
         bool AutoStartStreaming { get; set; }
 
         /// <summary>
+        /// 녹화 및 실시간 송출 영상에
+        /// 클릭·터치 포인터를 표시할지 여부.
+        /// </summary>
+        bool TouchPointerEnabled { get; set; }
+
+        /// <summary>
+        /// 클릭·터치 포인터 크기.
+        /// 단위는 픽셀이다.
+        /// </summary>
+        int TouchPointerDiameter { get; set; }
+
+        /// <summary>
+        /// 클릭 후 포인터 표시 유지 시간.
+        /// 단위는 밀리초(ms)이다.
+        /// </summary>
+        int TouchPointerVisibleMilliseconds { get; set; }
+
+        /// <summary>
         /// 설정 화면을 표시한다.
         /// </summary>
         void ShowForm();

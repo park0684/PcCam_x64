@@ -48,6 +48,10 @@ namespace PcCam_x64
             MonitorService monitorService = null;
             FfmpegCommandBuilder commandBuilder = null;
             GlobalPointerInputService pointerInputService = null;
+            TouchOverlayManager touchOverlayManager = null;
+            TouchZmqControlService touchZmqControlService = null;
+            TouchZmqPointerManager touchZmqPointerManager = null;
+
             AuthDllAdapter authDllAdapter = null;
             RuntimeAuthMonitorService runtimeAuthMonitorService = null;
 
@@ -59,6 +63,8 @@ namespace PcCam_x64
             OnvifRequestDispatcher onvifRequestDispatcher = null;
             OnvifHttpServerService onvifHttpServerService = null;
             OnvifDiscoveryService onvifDiscoveryService = null;
+
+
 
             RtspServerService rtspServerService = null;
             FfmpegService ffmpegService = null;
@@ -145,6 +151,29 @@ namespace PcCam_x64
                  * 설정 파일이 없으면 ConfigService에서 기본 INI 파일을 생성한다.
                  */
                 AppConfig config = configService.Load();
+
+                /*
+                 * 클릭·터치 포인터 설정을 확인한다.
+                 *
+                 * 이전 설정 파일에 TouchPointer 섹션이 없거나
+                 * 비정상 값이 저장된 경우에도 안전한 기본값을 사용한다.
+                 */
+                if (config.TouchPointer == null)
+                {
+                    config.TouchPointer =
+                        new TouchPointerConfig();
+                }
+
+                config.TouchPointer.Normalize();
+
+                logService.WriteApp(
+                    "[TouchPointer] 설정 로드. " +
+                    "Enabled=" +
+                    config.TouchPointer.Enabled +
+                    ", Diameter=" +
+                    config.TouchPointer.Diameter +
+                    ", VisibleMs=" +
+                    config.TouchPointer.VisibleMilliseconds);
 
                 /*
                  * 현재 PC의 모니터 수에 맞춰 StreamConfig를 보정한다.
@@ -286,57 +315,170 @@ namespace PcCam_x64
                 commandBuilder = new FfmpegCommandBuilder();
 
                 /*
-                 * 전역 포인터 입력 감지 POC.
-                 *
-                 * PCCAM_POINTER_INPUT_POC=1인 경우에만 후크를 등록한다.
-                 * 일반 운영 실행에는 영향을 주지 않으며,
-                 * 터치 드라이버가 Touch 서명을 전달하는지 로그로 확인한다.
-                 */
+                * 전역 입력 감지 및 클릭·터치 포인터 서비스 생성.
+                *
+                * 실제 ZMQ 포인터 사용 여부는
+                * config.TouchPointer.Enabled 설정으로 결정한다.
+                *
+                * PCCAM_POINTER_INPUT_POC 환경변수는
+                * 좌표 로그 확인용으로만 임시 유지한다.
+                *
+                * PCCAM_TOUCH_PIPE_POC는 기존 Named Pipe 방식의
+                * 비교·진단 목적으로만 유지한다.
+                */
                 string pointerInputPocValue =
                     Environment.GetEnvironmentVariable(
                         "PCCAM_POINTER_INPUT_POC");
 
-                if (string.Equals(
-                    pointerInputPocValue == null
-                        ? ""
-                        : pointerInputPocValue.Trim(),
-                    "1",
-                    StringComparison.Ordinal))
-                {
-                    pointerInputService =
-                        new GlobalPointerInputService();
+                string touchPipePocValue =
+                    Environment.GetEnvironmentVariable(
+                        "PCCAM_TOUCH_PIPE_POC");
 
+                bool pointerInputPocEnabled =
+                    string.Equals(
+                        pointerInputPocValue == null
+                            ? ""
+                            : pointerInputPocValue.Trim(),
+                        "1",
+                        StringComparison.Ordinal);
+
+                bool touchPipePocEnabled =
+                    string.Equals(
+                        touchPipePocValue == null
+                            ? ""
+                            : touchPipePocValue.Trim(),
+                        "1",
+                        StringComparison.Ordinal);
+
+                /*
+                 * 정식 ZMQ 포인터 기능과 기존 Named Pipe POC를
+                 * 동시에 활성화하지 않는다.
+                 *
+                 * TouchPointer 설정이 활성화된 경우
+                 * 정식 ZMQ 방식을 우선한다.
+                 */
+                if (config.TouchPointer.Enabled)
+                {
+                    touchPipePocEnabled = false;
+                }
+
+                /*
+                 * 전역 입력 후크는 프로그램 실행 중 하나만 생성한다.
+                 *
+                 * 설정 화면에서 TouchPointer를 활성화하고
+                 * 송출만 재시작할 수 있도록
+                 * 현재 활성화 여부와 관계없이 서비스를 생성한다.
+                 */
+                pointerInputService =
+                    new GlobalPointerInputService();
+
+                /*
+                 * 전역 클릭 좌표를 app 로그에 기록하는 진단 기능.
+                 *
+                 * 실제 포인터 표시 기능에는 필요하지 않으며,
+                 * PCCAM_POINTER_INPUT_POC=1인 경우에만 기록한다.
+                 */
+                if (pointerInputPocEnabled)
+                {
                     pointerInputService.PointerPressed +=
                         delegate (PointerSample sample)
                         {
                             try
                             {
-                                if (logService == null || sample == null)
+                                if (logService == null ||
+                                    sample == null)
+                                {
                                     return;
-
-                                string inputType = sample.IsTouch
-                                    ? "Touch"
-                                    : "MouseOrPen";
+                                }
 
                                 logService.WriteApp(
-                                    "[PointerInput] " +
-                                    inputType +
-                                    " Down X=" + sample.ScreenX +
-                                    ", Y=" + sample.ScreenY +
+                                    "[PointerInput] Down X=" +
+                                    sample.ScreenX +
+                                    ", Y=" +
+                                    sample.ScreenY +
                                     ", ExtraInfo=0x" +
                                     sample.ExtraInfo.ToString("X8"));
                             }
                             catch
                             {
-                                // 입력 진단 로그 실패가 후크 동작을 중단시키면 안 된다.
+                                /*
+                                 * 진단 로그 기록 실패가
+                                 * 전역 입력 감지를 중단시키면 안 된다.
+                                 */
                             }
                         };
-
-                    pointerInputService.Start();
-
-                    logService.WriteApp(
-                        "[PointerInput] 전역 입력 감지 POC 시작");
                 }
+
+                /*
+                 * 기존 Named Pipe 포인터 POC.
+                 *
+                 * 정식 TouchPointer 설정이 활성화된 경우에는
+                 * 위에서 touchPipePocEnabled를 false로 변경했으므로
+                 * 이 관리자는 생성되지 않는다.
+                 */
+                if (touchPipePocEnabled)
+                {
+                    touchOverlayManager =
+                        new TouchOverlayManager(
+                            pointerInputService);
+                }
+
+                /*
+                 * FFmpeg ZMQ 명령 전송 서비스.
+                 */
+                touchZmqControlService =
+                    new TouchZmqControlService();
+
+                /*
+                 * 전역 클릭 좌표를 Stream0 모니터 기준 좌표로 변환하고
+                 * FFmpeg drawbox 위치 변경 명령을 전송하는 관리자.
+                 *
+                 * 현재 TouchPointer.Enabled가 false여도 관리자는 생성한다.
+                 * 실제 대상 등록은 FfmpegService가 송출 시작 시 결정한다.
+                 */
+                touchZmqPointerManager =
+                    new TouchZmqPointerManager(
+                        pointerInputService,
+                        touchZmqControlService);
+
+                /*
+                 * ZMQ 포인터 관리자 로그를 app 로그에 연결한다.
+                 */
+                touchZmqPointerManager.LogReceived +=
+                    delegate (string line)
+                    {
+                        try
+                        {
+                            if (logService != null)
+                            {
+                                logService.WriteApp(
+                                    "[TouchZmq] " +
+                                    line);
+                            }
+                        }
+                        catch
+                        {
+                            /*
+                             * 로그 기록 실패가
+                             * 영상 송출이나 포인터 처리를 중단시키면 안 된다.
+                             */
+                        }
+                    };
+
+                /*
+                 * 모든 이벤트 구독과 관리자 생성이 완료된 뒤
+                 * 전역 입력 후크를 시작한다.
+                 */
+                pointerInputService.Start();
+
+                logService.WriteApp(
+                    "[PointerInput] 전역 입력 감지 시작. " +
+                    "LogPoc=" +
+                    pointerInputPocEnabled +
+                    ", TouchPipePoc=" +
+                    touchPipePocEnabled +
+                    ", TouchPointerEnabled=" +
+                    config.TouchPointer.Enabled);
 
                 /*
                  * 인증 DLL 어댑터.
@@ -412,7 +554,9 @@ namespace PcCam_x64
                 ffmpegService =
                     new FfmpegService(
                         pathProvider,
-                        commandBuilder);
+                        commandBuilder,
+                        touchOverlayManager,
+                        touchZmqPointerManager);
 
                 /*
                  * 송출 통합 제어 서비스.
@@ -514,17 +658,6 @@ namespace PcCam_x64
                 }
 
                 /*
-                 * 전역 포인터 입력 후크를 다른 서비스보다 먼저 해제한다.
-                 */
-                try
-                {
-                    if (pointerInputService != null)
-                        pointerInputService.Dispose();
-                }
-                catch
-                {
-                }
-                /*
                  * Presenter 먼저 해제한다.
                  * 이벤트 연결을 먼저 끊어야 종료 중 불필요한 UI 호출을 줄일 수 있다.
                  */
@@ -572,6 +705,47 @@ namespace PcCam_x64
                 {
                     if (ffmpegService != null)
                         ffmpegService.Dispose();
+                }
+                catch
+                {
+                }
+
+                /*
+                 * FFmpeg 서비스 종료가 끝난 뒤
+                 * ZMQ 포인터 관리자와 Named Pipe 좌표 관리자를 해제한다.
+                 */
+                try
+                {
+                    if (touchZmqPointerManager != null)
+                    {
+                        touchZmqPointerManager.Dispose();
+                    }
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    if (touchOverlayManager != null)
+                    {
+                        touchOverlayManager.Dispose();
+                    }
+                }
+                catch
+                {
+                }
+
+                /*
+                 * 모든 포인터 관리자가 입력 이벤트 연결을 해제한 뒤
+                 * 마지막으로 전역 입력 후크를 종료한다.
+                 */
+                try
+                {
+                    if (pointerInputService != null)
+                    {
+                        pointerInputService.Dispose();
+                    }
                 }
                 catch
                 {
@@ -630,6 +804,19 @@ namespace PcCam_x64
                 {
                     if (logService != null)
                         logService.WriteApp("PC CAM 프로그램 종료 완료");
+                }
+                catch
+                {
+                }
+
+                /*
+                 * NetMQ 내부 I/O 스레드와 전역 자원을 정리한다.
+                 * 모든 ZMQ 관리자와 Socket이 해제된 뒤 호출해야 한다.
+                 */
+                try
+                {
+                    NetMQ.NetMQConfig.Cleanup(
+                        false);
                 }
                 catch
                 {

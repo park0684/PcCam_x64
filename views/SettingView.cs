@@ -46,6 +46,13 @@ namespace PcCam_x64.Views
         private CheckBox _chkPreventSleep;
         private CheckBox _chkAutoStartStreaming;
 
+        /*
+         * 클릭·터치 포인터 설정 컨트롤.
+         */
+        private CheckBox _chkTouchPointerEnabled;
+        private NumericUpDown _numTouchPointerDiameter;
+        private NumericUpDown _numTouchPointerVisibleMilliseconds;
+
         private Button _btnApply;
         private Button _btnOk;
         private Button _btnCancel;
@@ -242,6 +249,79 @@ namespace PcCam_x64.Views
             set { _chkAutoStartStreaming.Checked = value; }
         }
 
+        /// <summary>
+        /// 클릭·터치 포인터 표시 여부.
+        /// </summary>
+        public bool TouchPointerEnabled
+        {
+            get
+            {
+                return _chkTouchPointerEnabled != null &&
+                       _chkTouchPointerEnabled.Checked;
+            }
+            set
+            {
+                if (_chkTouchPointerEnabled == null)
+                    return;
+
+                _chkTouchPointerEnabled.Checked = value;
+
+                UpdateTouchPointerInputState();
+            }
+        }
+
+        /// <summary>
+        /// 클릭·터치 포인터 크기.
+        /// </summary>
+        public int TouchPointerDiameter
+        {
+            get
+            {
+                if (_numTouchPointerDiameter == null)
+                    return 160;
+
+                return Decimal.ToInt32(
+                    _numTouchPointerDiameter.Value);
+            }
+            set
+            {
+                if (_numTouchPointerDiameter == null)
+                    return;
+
+                _numTouchPointerDiameter.Value =
+                    ClampDecimal(
+                        value,
+                        _numTouchPointerDiameter.Minimum,
+                        _numTouchPointerDiameter.Maximum);
+            }
+        }
+
+        /// <summary>
+        /// 클릭 후 포인터 표시 유지 시간.
+        /// </summary>
+        public int TouchPointerVisibleMilliseconds
+        {
+            get
+            {
+                if (_numTouchPointerVisibleMilliseconds == null)
+                    return 700;
+
+                return Decimal.ToInt32(
+                    _numTouchPointerVisibleMilliseconds.Value);
+            }
+            set
+            {
+                if (_numTouchPointerVisibleMilliseconds == null)
+                    return;
+
+                _numTouchPointerVisibleMilliseconds.Value =
+                    ClampDecimal(
+                        value,
+                        _numTouchPointerVisibleMilliseconds.Minimum,
+                        _numTouchPointerVisibleMilliseconds.Maximum);
+            }
+        }
+
         public void ShowForm()
         {
             if (Visible)
@@ -327,13 +407,14 @@ namespace PcCam_x64.Views
             MaximizeBox = false;
             MinimizeBox = true;
             Width = 760;
-            Height = 390;
+            Height = 480;
 
             Font = new Font("맑은 고딕", 9F, FontStyle.Regular);
 
             CreateStreamGroup();
             CreateOnvifGroup();
             CreateAuthGroup();
+            CreateTouchPointerGroup();
             CreateOperationGroup();
             CreateButtons();
 
@@ -502,33 +583,201 @@ namespace PcCam_x64.Views
             group.Controls.Add(_btnAuthAction);
         }
 
+        /// <summary>
+        /// 녹화 및 실시간 송출 영상에 표시할
+        /// 클릭·터치 포인터 설정 영역을 생성한다.
+        /// </summary>
+        private void CreateTouchPointerGroup()
+        {
+            GroupBox group =
+                new GroupBox();
+
+            group.Text = "클릭·터치 포인터";
+            group.Left = 15;
+            group.Top = 260;
+            group.Width = 710;
+            group.Height = 80;
+
+            Controls.Add(group);
+
+            /*
+             * 포인터 표시 기능 사용 여부.
+             */
+            _chkTouchPointerEnabled =
+                new CheckBox();
+
+            _chkTouchPointerEnabled.Text =
+                "포인터 표시";
+
+            _chkTouchPointerEnabled.Left = 20;
+            _chkTouchPointerEnabled.Top = 33;
+            _chkTouchPointerEnabled.Width = 120;
+
+            _chkTouchPointerEnabled.CheckedChanged +=
+                delegate
+                {
+                    UpdateTouchPointerInputState();
+                };
+
+            group.Controls.Add(
+                _chkTouchPointerEnabled);
+
+            /*
+             * 포인터 크기.
+             */
+            Label lblDiameter =
+                new Label();
+
+            lblDiameter.Text = "포인터 크기:";
+            lblDiameter.Left = 165;
+            lblDiameter.Top = 36;
+            lblDiameter.Width = 80;
+
+            group.Controls.Add(
+                lblDiameter);
+
+            _numTouchPointerDiameter =
+                new NumericUpDown();
+
+            _numTouchPointerDiameter.Left = 245;
+            _numTouchPointerDiameter.Top = 31;
+            _numTouchPointerDiameter.Width = 80;
+
+            _numTouchPointerDiameter.Minimum = 24;
+            _numTouchPointerDiameter.Maximum = 500;
+            _numTouchPointerDiameter.Increment = 8;
+            _numTouchPointerDiameter.Value = 160;
+
+            group.Controls.Add(
+                _numTouchPointerDiameter);
+
+            Label lblDiameterUnit =
+                new Label();
+
+            lblDiameterUnit.Text = "px";
+            lblDiameterUnit.Left = 330;
+            lblDiameterUnit.Top = 36;
+            lblDiameterUnit.Width = 30;
+
+            group.Controls.Add(
+                lblDiameterUnit);
+
+            /*
+             * 포인터 표시 유지 시간.
+             */
+            Label lblVisibleMilliseconds =
+                new Label();
+
+            lblVisibleMilliseconds.Text =
+                "표시 시간:";
+
+            lblVisibleMilliseconds.Left = 390;
+            lblVisibleMilliseconds.Top = 36;
+            lblVisibleMilliseconds.Width = 70;
+
+            group.Controls.Add(
+                lblVisibleMilliseconds);
+
+            _numTouchPointerVisibleMilliseconds =
+                new NumericUpDown();
+
+            _numTouchPointerVisibleMilliseconds.Left = 460;
+            _numTouchPointerVisibleMilliseconds.Top = 31;
+            _numTouchPointerVisibleMilliseconds.Width = 100;
+
+            _numTouchPointerVisibleMilliseconds.Minimum = 100;
+            _numTouchPointerVisibleMilliseconds.Maximum = 5000;
+            _numTouchPointerVisibleMilliseconds.Increment = 100;
+            _numTouchPointerVisibleMilliseconds.Value = 700;
+
+            group.Controls.Add(
+                _numTouchPointerVisibleMilliseconds);
+
+            Label lblVisibleMillisecondsUnit =
+                new Label();
+
+            lblVisibleMillisecondsUnit.Text = "ms";
+            lblVisibleMillisecondsUnit.Left = 565;
+            lblVisibleMillisecondsUnit.Top = 36;
+            lblVisibleMillisecondsUnit.Width = 35;
+
+            group.Controls.Add(
+                lblVisibleMillisecondsUnit);
+
+            UpdateTouchPointerInputState();
+        }
+
+        /// <summary>
+        /// 포인터 사용 여부에 따라
+        /// 크기와 표시 시간 입력 가능 상태를 변경한다.
+        /// </summary>
+        private void UpdateTouchPointerInputState()
+        {
+            bool enabled =
+                _chkTouchPointerEnabled != null &&
+                _chkTouchPointerEnabled.Checked;
+
+            if (_numTouchPointerDiameter != null)
+            {
+                _numTouchPointerDiameter.Enabled =
+                    enabled;
+            }
+
+            if (_numTouchPointerVisibleMilliseconds != null)
+            {
+                _numTouchPointerVisibleMilliseconds.Enabled =
+                    enabled;
+            }
+        }
+
+        /// <summary>
+        /// NumericUpDown에 설정할 값을
+        /// 컨트롤의 최소값과 최대값 범위로 제한한다.
+        /// </summary>
+        private decimal ClampDecimal(
+            int value,
+            decimal minimum,
+            decimal maximum)
+        {
+            decimal decimalValue =
+                value;
+
+            if (decimalValue < minimum)
+                return minimum;
+
+            if (decimalValue > maximum)
+                return maximum;
+
+            return decimalValue;
+        }
+
         private void CreateOperationGroup()
         {
             _chkEnableDetailLog = new CheckBox();
             _chkEnableDetailLog.Text = "상세로그 기록";
             _chkEnableDetailLog.Left = 25;
-            _chkEnableDetailLog.Top = 270;
+            _chkEnableDetailLog.Top = 360;
             _chkEnableDetailLog.Width = 120;
             Controls.Add(_chkEnableDetailLog);
 
             _chkAutoStart = new CheckBox();
             _chkAutoStart.Text = "자동실행";
             _chkAutoStart.Left = 160;
-            _chkAutoStart.Top = 270;
+            _chkAutoStart.Top = 360;
             _chkAutoStart.Width = 90;
             Controls.Add(_chkAutoStart);
 
             _chkPreventSleep = new CheckBox();
             _chkPreventSleep.Text = "절전모드 해제";
             _chkPreventSleep.Left = 260;
-            _chkPreventSleep.Top = 270;
+            _chkPreventSleep.Top = 360;
             _chkPreventSleep.Width = 125;
             Controls.Add(_chkPreventSleep);
 
             _chkAutoStartStreaming = new CheckBox();
             _chkAutoStartStreaming.Text = "실행 시 자동 송출";
             _chkAutoStartStreaming.Left = 400;
-            _chkAutoStartStreaming.Top = 270;
+            _chkAutoStartStreaming.Top = 360;
             _chkAutoStartStreaming.Width = 140;
             Controls.Add(_chkAutoStartStreaming);
         }
@@ -538,7 +787,7 @@ namespace PcCam_x64.Views
             _btnApply = new Button();
             _btnApply.Text = "적용";
             _btnApply.Left = 470;
-            _btnApply.Top = 310;
+            _btnApply.Top = 400;
             _btnApply.Width = 80;
             _btnApply.Click += delegate
             {
@@ -551,7 +800,7 @@ namespace PcCam_x64.Views
             _btnOk = new Button();
             _btnOk.Text = "확인";
             _btnOk.Left = 560;
-            _btnOk.Top = 310;
+            _btnOk.Top = 400;
             _btnOk.Width = 80;
             _btnOk.Click += delegate
             {
@@ -564,7 +813,7 @@ namespace PcCam_x64.Views
             _btnCancel = new Button();
             _btnCancel.Text = "취소";
             _btnCancel.Left = 650;
-            _btnCancel.Top = 310;
+            _btnCancel.Top = 400;
             _btnCancel.Width = 80;
             _btnCancel.Click += delegate
             {

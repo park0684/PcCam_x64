@@ -441,7 +441,8 @@ namespace PcCam_x64.Services
                 _ffmpegService.Start(
                     stream,
                     monitor,
-                    config.RtspServer);
+                    config.RtspServer,
+                    config.TouchPointer);
 
                 RaiseLog(
                     "스트림 송출 시작 요청 완료. StreamNo=" +
