@@ -17,18 +17,7 @@ namespace PcCam_x64.Services
     /// </summary>
     public class FfmpegCommandBuilder
     {
-        private const string TouchOverlayPocEnvironmentVariable = "PCCAM_TOUCH_OVERLAY_POC";
-        private const int TouchOverlayPocMarkerSize = 320;
-        private const int TouchOverlayPocBorderThickness = 6;
 
-        /// <summary>
-        /// Stream0에서 사용하는 ZMQ 기준 포트.
-        /// StreamNo가 증가할 때마다 포트도 1씩 증가한다.
-        ///
-        /// Stream0 → 5555
-        /// Stream1 → 5556
-        /// </summary>
-        private const int TouchZmqBasePort = 5555;
 
         /// <summary>
         /// FFmpeg 실행 Arguments를 생성한다.
@@ -48,25 +37,6 @@ namespace PcCam_x64.Services
             StreamConfig streamConfig,
             MonitorInfo monitorInfo,
             RtspServerConfig rtspServerConfig,
-            TouchOverlayInput overlayInput)
-        {
-            return BuildArguments(
-                streamConfig,
-                monitorInfo,
-                rtspServerConfig,
-                overlayInput,
-                null);
-        }
-
-        /// <summary>
-        /// 선택적인 터치 오버레이 입력을 포함하여 FFmpeg Arguments를 생성한다.
-        /// overlayInput이 null이면 기존 명령 생성 흐름을 그대로 사용한다.
-        /// </summary>
-        public string BuildArguments(
-            StreamConfig streamConfig,
-            MonitorInfo monitorInfo,
-            RtspServerConfig rtspServerConfig,
-            TouchOverlayInput overlayInput,
             TouchPointerConfig touchPointerConfig)
         {
             if (streamConfig == null)
@@ -136,29 +106,18 @@ namespace PcCam_x64.Services
                 subStream,
                 useMain,
                 useSub);
-
             /*
              * 오버레이 적용 우선순위:
              *
              * 1. 정식 ZMQ 클릭·터치 포인터
              * 2. 기존 Named Pipe 포인터 POC
-             * 3. 기존 정적 오버레이 POC
-             * 4. 일반 영상 송출
+             * 3. 일반 영상 송출
              */
             bool useTouchZmqPointer =
                 IsTouchZmqPointerEnabled(
                     streamConfig,
                     effectiveTouchPointerConfig);
 
-            bool useNamedPipeOverlay =
-                !useTouchZmqPointer &&
-                overlayInput != null;
-
-            bool useTouchOverlayPoc =
-                !useTouchZmqPointer &&
-                !useNamedPipeOverlay &&
-                IsTouchOverlayPocEnabled(
-                    streamConfig);
             /*
              * 현재 ZMQ 필터는 원본 영상에 포인터를 적용한 뒤
              * Main/Sub로 분기하는 구조만 구현되어 있다.
@@ -183,19 +142,6 @@ namespace PcCam_x64.Services
                 "-offset_y " + monitorInfo.BoundsY + " " +
                 "-video_size " + monitorInfo.BoundsWidth + "x" + monitorInfo.BoundsHeight + " " +
                 "-i desktop ";
-
-            if (useNamedPipeOverlay)
-            {
-                inputOptions +=
-                    BuildTouchOverlayInputOptions(
-                        overlayInput);
-            }
-            else if (useTouchOverlayPoc)
-            {
-                inputOptions += BuildTouchOverlayPocInputOptions(
-                    monitorInfo,
-                    captureFps);
-            }
 
             /*
              * Main/Sub 둘 다 사용하는 경우.
@@ -226,20 +172,6 @@ namespace PcCam_x64.Services
                             monitorInfo,
                             effectiveTouchPointerConfig,
                             streamConfig.StreamNo);
-                }
-                else if (useNamedPipeOverlay)
-                {
-                    filterComplex =
-                        BuildMainSubNamedPipeOverlayFilterComplex(
-                            subStream,
-                            monitorInfo);
-                }
-                else if (useTouchOverlayPoc)
-                {
-                    filterComplex =
-                        BuildMainSubTouchOverlayPocFilterComplex(
-                            subStream,
-                            monitorInfo);
                 }
                 else
                 {
@@ -278,39 +210,6 @@ namespace PcCam_x64.Services
                     mainStream.RtspPath,
                     rtspServerConfig);
 
-                if (useNamedPipeOverlay)
-                {
-                    string filterComplex =
-                        BuildMainNamedPipeOverlayFilterComplex(
-                            monitorInfo);
-
-                    string overlayArguments =
-                        inputOptions +
-                        "-filter_complex \"" + filterComplex + "\" " +
-                        "-map \"[mainout]\" " +
-                        BuildCodecOptions(streamConfig, mainStream) + " " +
-                        BuildRtmpOutputOptions() +
-                        mainUrl;
-
-                    return overlayArguments;
-                }
-
-                if (useTouchOverlayPoc)
-                {
-                    string filterComplex =
-                        BuildMainTouchOverlayPocFilterComplex();
-
-                    string overlayArguments =
-                        inputOptions +
-                        "-filter_complex \"" + filterComplex + "\" " +
-                        "-map \"[mainout]\" " +
-                        BuildCodecOptions(streamConfig, mainStream) + " " +
-                        BuildRtmpOutputOptions() +
-                        mainUrl;
-
-                    return overlayArguments;
-                }
-
                 string arguments =
                     inputOptions +
                     BuildCodecOptions(streamConfig, mainStream) + " " +
@@ -330,42 +229,6 @@ namespace PcCam_x64.Services
                     subStream.RtspPath,
                     rtspServerConfig);
 
-                if (useNamedPipeOverlay)
-                {
-                    string filterComplex =
-                        BuildSubNamedPipeOverlayFilterComplex(
-                            subStream,
-                            monitorInfo);
-
-                    string overlayArguments =
-                        inputOptions +
-                        "-filter_complex \"" + filterComplex + "\" " +
-                        "-map \"[subout]\" " +
-                        BuildCodecOptions(streamConfig, subStream) + " " +
-                        BuildRtmpOutputOptions() +
-                        subUrl;
-
-                    return overlayArguments;
-                }
-
-                if (useTouchOverlayPoc)
-                {
-                    string filterComplex =
-                        BuildSubTouchOverlayPocFilterComplex(
-                            subStream,
-                            monitorInfo);
-
-                    string overlayArguments =
-                        inputOptions +
-                        "-filter_complex \"" + filterComplex + "\" " +
-                        "-map \"[subout]\" " +
-                        BuildCodecOptions(streamConfig, subStream) + " " +
-                        BuildRtmpOutputOptions() +
-                        subUrl;
-
-                    return overlayArguments;
-                }
-
                 string videoFilter = BuildVideoFilterOption(
                     subStream,
                     monitorInfo);
@@ -381,235 +244,6 @@ namespace PcCam_x64.Services
             }
 
             throw new InvalidOperationException("FFmpeg Arguments를 생성할 수 없습니다.");
-        }
-
-        /// <summary>
-        /// Named Pipe BGRA rawvideo 입력 옵션을 생성한다.
-        /// </summary>
-        private string BuildTouchOverlayInputOptions(
-            TouchOverlayInput overlayInput)
-        {
-            if (overlayInput == null)
-                throw new ArgumentNullException("overlayInput");
-
-            if (string.IsNullOrWhiteSpace(overlayInput.PipePath))
-            {
-                throw new InvalidOperationException(
-                    "터치 오버레이 Pipe 경로가 비어 있습니다.");
-            }
-
-            if (overlayInput.Width <= 0 ||
-                overlayInput.Height <= 0)
-            {
-                throw new InvalidOperationException(
-                    "터치 오버레이 해상도가 올바르지 않습니다.");
-            }
-
-            if (overlayInput.FrameRate <= 0)
-            {
-                throw new InvalidOperationException(
-                    "터치 오버레이 FPS 값이 올바르지 않습니다.");
-            }
-
-            return "-thread_queue_size 2 " +
-                   "-f rawvideo " +
-                   "-pixel_format bgra " +
-                   "-video_size " +
-                   overlayInput.Width + "x" +
-                   overlayInput.Height + " " +
-                   "-framerate " +
-                   overlayInput.FrameRate + " " +
-                   "-i \"" +
-                   overlayInput.PipePath +
-                   "\" ";
-        }
-
-        /// <summary>
-        /// 원본과 Named Pipe 오버레이를 먼저 합성한 뒤 Main/Sub로 분기한다.
-        /// </summary>
-        private string BuildMainSubNamedPipeOverlayFilterComplex(
-            StreamQualityConfig subStream,
-            MonitorInfo monitorInfo)
-        {
-            string subFilter = BuildSubVideoFilter(
-                subStream,
-                monitorInfo);
-
-            return "[0:v]setpts=PTS-STARTPTS[base];" +
-                   "[1:v]format=rgba," +
-                   "scale=" +
-                   monitorInfo.BoundsWidth + ":" +
-                   monitorInfo.BoundsHeight +
-                   ":flags=neighbor," +
-                   "format=rgba," +
-                   "setpts=PTS-STARTPTS[pointer];" +
-                   "[base][pointer]overlay=0:0:eof_action=pass:repeatlast=1[composed];" +
-                   "[composed]split=2[mainraw][subraw];" +
-                   "[mainraw]null[mainout];" +
-                   "[subraw]" + subFilter + "[subout]";
-        }
-
-        /// <summary>
-        /// Main 단독 출력용 Named Pipe 오버레이 필터.
-        /// </summary>
-        private string BuildMainNamedPipeOverlayFilterComplex(
-            MonitorInfo monitorInfo)
-        {
-            return "[0:v]setpts=PTS-STARTPTS[base];" +
-                   "[1:v]format=rgba," +
-                   "scale=" +
-                   monitorInfo.BoundsWidth + ":" +
-                   monitorInfo.BoundsHeight +
-                   ":flags=neighbor," +
-                   "format=rgba," +
-                   "setpts=PTS-STARTPTS[pointer];" +
-                   "[base][pointer]overlay=0:0:eof_action=pass:repeatlast=1[mainout]";
-        }
-
-        /// <summary>
-        /// Sub 단독 출력용 Named Pipe 오버레이 필터.
-        /// </summary>
-        private string BuildSubNamedPipeOverlayFilterComplex(
-            StreamQualityConfig subStream,
-            MonitorInfo monitorInfo)
-        {
-            string subFilter = BuildSubVideoFilter(
-                subStream,
-                monitorInfo);
-
-            return "[0:v]setpts=PTS-STARTPTS[base];" +
-                   "[1:v]format=rgba," +
-                   "scale=" +
-                   monitorInfo.BoundsWidth + ":" +
-                   monitorInfo.BoundsHeight +
-                   ":flags=neighbor," +
-                   "format=rgba," +
-                   "setpts=PTS-STARTPTS[pointer];" +
-                   "[base][pointer]overlay=0:0:eof_action=pass:repeatlast=1[composed];" +
-                   "[composed]" + subFilter + "[subout]";
-        }
-        /// <summary>
-        /// 정적 터치 오버레이 POC 사용 여부를 확인한다.
-        ///
-        /// 안전 조건:
-        /// - 환경변수 PCCAM_TOUCH_OVERLAY_POC 값이 정확히 1이어야 한다.
-        /// - 1차 POC 대상인 Stream0에서만 활성화한다.
-        ///
-        /// 이 조건을 만족하지 않으면 기존 FFmpeg 명령을 그대로 사용한다.
-        /// </summary>
-        private bool IsTouchOverlayPocEnabled(
-            StreamConfig streamConfig)
-        {
-            if (streamConfig == null)
-                return false;
-
-            string value = Environment.GetEnvironmentVariable(
-                TouchOverlayPocEnvironmentVariable);
-
-            if (string.IsNullOrWhiteSpace(value))
-                return false;
-
-            return string.Equals(
-                value.Trim(),
-                "1",
-                StringComparison.Ordinal);
-        }
-
-        /// <summary>
-        /// 정적 POC용 투명 RGBA 오버레이 입력을 생성한다.
-        ///
-        /// 전체 화면 크기의 투명 프레임을 lavfi로 만들고,
-        /// 화면 중앙에 노란색 사각형 테두리를 표시한다.
-        /// 실제 POS 화면에는 그리지 않고 FFmpeg 내부에서만 사용한다.
-        /// </summary>
-        private string BuildTouchOverlayPocInputOptions(
-            MonitorInfo monitorInfo,
-            int captureFps)
-        {
-            if (monitorInfo == null)
-                throw new ArgumentNullException("monitorInfo");
-
-            int markerSize = Math.Min(
-                TouchOverlayPocMarkerSize,
-                Math.Min(
-                    monitorInfo.BoundsWidth,
-                    monitorInfo.BoundsHeight));
-
-            int markerX =
-                Math.Max(
-                    0,
-                    (monitorInfo.BoundsWidth - markerSize) / 2);
-
-            int markerY =
-                Math.Max(
-                    0,
-                    (monitorInfo.BoundsHeight - markerSize) / 2);
-
-            string overlayFilter =
-                "color=c=black@0.0" +
-                ":s=" + monitorInfo.BoundsWidth + "x" + monitorInfo.BoundsHeight +
-                ":r=" + captureFps +
-                ",format=rgba" +
-                ",drawbox=" +
-                "x=" + markerX +
-                ":y=" + markerY +
-                ":w=" + markerSize +
-                ":h=" + markerSize +
-                ":color=magenta@1.0" +
-                ":t=fill" +
-                ":replace=1";
-
-            return "-f lavfi " +
-                   "-i \"" + overlayFilter + "\" ";
-        }
-
-        /// <summary>
-        /// Main/Sub 동시 출력용 정적 오버레이 필터를 생성한다.
-        ///
-        /// 원본 화면과 오버레이를 먼저 한 번 합성한 다음,
-        /// 합성 결과를 Main/Sub로 분기한다.
-        /// </summary>
-        private string BuildMainSubTouchOverlayPocFilterComplex(
-            StreamQualityConfig subStream,
-            MonitorInfo monitorInfo)
-        {
-            string subFilter = BuildSubVideoFilter(
-                subStream,
-                monitorInfo);
-
-            return "[0:v]setpts=PTS-STARTPTS[base];" +
-                   "[1:v]format=rgba,setpts=PTS-STARTPTS[pointer];" +
-                   "[base][pointer]overlay=0:0:eof_action=pass:repeatlast=0[composed];" +
-                   "[composed]split=2[mainraw][subraw];" +
-                   "[mainraw]null[mainout];" +
-                   "[subraw]" + subFilter + "[subout]";
-        }
-
-        /// <summary>
-        /// Main 단독 출력용 정적 오버레이 필터를 생성한다.
-        /// </summary>
-        private string BuildMainTouchOverlayPocFilterComplex()
-        {
-            return "[0:v]setpts=PTS-STARTPTS[base];" +
-                   "[1:v]format=rgba,setpts=PTS-STARTPTS[pointer];" +
-                   "[base][pointer]overlay=0:0:eof_action=pass:repeatlast=0[mainout]";
-        }
-
-        /// <summary>
-        /// Sub 단독 출력용 정적 오버레이 필터를 생성한다.
-        /// </summary>
-        private string BuildSubTouchOverlayPocFilterComplex(
-            StreamQualityConfig subStream,
-            MonitorInfo monitorInfo)
-        {
-            string subFilter = BuildSubVideoFilter(
-                subStream,
-                monitorInfo);
-
-            return "[0:v]setpts=PTS-STARTPTS[base];" +
-                   "[1:v]format=rgba,setpts=PTS-STARTPTS[pointer];" +
-                   "[base][pointer]overlay=0:0:eof_action=pass:repeatlast=0[composed];" +
-                   "[composed]" + subFilter + "[subout]";
         }
 
         /// <summary>
@@ -1132,8 +766,10 @@ namespace PcCam_x64.Services
             }
 
             /*
-             * 현재 ZMQ 포트 하나만 사용하므로
-             * Stream0에만 적용한다.
+             * 각 FFmpeg 프로세스는 StreamNo별 ZMQ 포트를 사용한다.
+             *
+             * StreamNo가 0 이상이면 해당 Stream 전용 포트를 계산하여
+             * 클릭·터치 포인터 필터를 적용할 수 있다.
              */
             if (streamConfig.StreamNo < 0)
                 return false;
@@ -1217,24 +853,21 @@ namespace PcCam_x64.Services
                     monitorInfo);
 
             /*
-             * 각 FFmpeg 프로세스가 서로 다른 ZMQ REP 포트를 사용하도록
-             * StreamNo를 기준 포트에 더한다.
-             *
-             * Stream0 → 5555
-             * Stream1 → 5556
+             * FFmpeg와 NetMQ가 동일한 Stream별 포트 정책을 사용하도록
+             * 공용 엔드포인트 정책에서 바인딩 주소를 생성한다.
              */
-            int zmqPort =
-                GetTouchZmqPort(
+            string zmqBindAddress =
+                TouchZmqEndpointPolicy.BuildFfmpegBindAddress(
                     streamNo);
 
             string zmqFilter =
-                "zmq=b='tcp\\://127.0.0.1\\:" +
-                zmqPort +
+                "zmq=b='" +
+                zmqBindAddress +
                 "'";
 
             /*
              * 투명한 pointerSize × pointerSize 영상에
-             * 노란색 원형 테두리를 생성한다.
+             * 빨간색 원형 테두리를 생성한다.
              */
             string pointerSource =
                 "nullsrc=" +
@@ -1247,7 +880,7 @@ namespace PcCam_x64.Services
                 "format=rgba," +
                 "geq=" +
                 "r='255':" +
-                "g='255':" +
+                "g='0':" +
                 "b='0':" +
                 "a='if(between(hypot(X-W/2,Y-H/2)," +
                 innerRadius +
@@ -1283,40 +916,6 @@ namespace PcCam_x64.Services
                 "[subraw]" +
                 subFilter +
                 "[subout]";
-        }
-
-        /// <summary>
-        /// StreamNo에 해당하는 ZMQ 제어 포트를 반환한다.
-        ///
-        /// Stream0 → 5555
-        /// Stream1 → 5556
-        /// Stream2 → 5557
-        /// </summary>
-        private int GetTouchZmqPort(
-            int streamNo)
-        {
-            if (streamNo < 0)
-            {
-                throw new ArgumentOutOfRangeException(
-                    "streamNo",
-                    "StreamNo는 0 이상이어야 합니다.");
-            }
-
-            int port =
-                TouchZmqBasePort +
-                streamNo;
-
-            if (port > 65535)
-            {
-                throw new InvalidOperationException(
-                    "StreamNo에 해당하는 ZMQ 포트가 유효 범위를 초과했습니다. " +
-                    "StreamNo=" +
-                    streamNo +
-                    ", Port=" +
-                    port);
-            }
-
-            return port;
         }
     }
 }

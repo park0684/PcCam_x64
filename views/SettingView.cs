@@ -52,7 +52,7 @@ namespace PcCam_x64.Views
         private CheckBox _chkTouchPointerEnabled;
         private NumericUpDown _numTouchPointerDiameter;
         private NumericUpDown _numTouchPointerVisibleMilliseconds;
-
+        private ToolTip _touchPointerToolTip;
         private Button _btnApply;
         private Button _btnOk;
         private Button _btnCancel;
@@ -591,8 +591,14 @@ namespace PcCam_x64.Views
         {
             GroupBox group =
                 new GroupBox();
+            _touchPointerToolTip = new ToolTip();
 
+            _touchPointerToolTip.AutoPopDelay = 5000;
+            _touchPointerToolTip.InitialDelay = 300;
+            _touchPointerToolTip.ReshowDelay = 100; 
+            _touchPointerToolTip.ShowAlways = true;
             group.Text = "클릭·터치 포인터";
+
             group.Left = 15;
             group.Top = 260;
             group.Width = 710;
@@ -701,8 +707,13 @@ namespace PcCam_x64.Views
             lblVisibleMillisecondsUnit.Top = 36;
             lblVisibleMillisecondsUnit.Width = 35;
 
-            group.Controls.Add(
-                lblVisibleMillisecondsUnit);
+            group.Controls.Add(lblVisibleMillisecondsUnit);
+
+            const string visibleMillisecondsHelpText = "포인트 표시는 최소250에서 최대 800까지 설정가능합니다";
+
+            _touchPointerToolTip.SetToolTip(lblVisibleMilliseconds, visibleMillisecondsHelpText);
+            _touchPointerToolTip.SetToolTip(_numTouchPointerVisibleMilliseconds, visibleMillisecondsHelpText);
+            _touchPointerToolTip.SetToolTip(lblVisibleMillisecondsUnit, visibleMillisecondsHelpText);
 
             UpdateTouchPointerInputState();
         }

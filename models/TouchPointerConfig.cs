@@ -17,11 +17,11 @@
         public bool Enabled { get; set; } = false;
 
         /// <summary>
-        /// 포인터의 가로·세로 크기.
+        /// 영상에 표시할 원형 포인터의 지름.
         ///
-        /// 현재 ZMQ POC는 정사각형 drawbox를 사용하지만,
-        /// 향후 원형 포인터로 변경될 가능성을 고려하여
-        /// Diameter라는 이름을 사용한다.
+        /// FFmpeg 내부에서 생성되는 원형 테두리 영상의
+        /// 가로·세로 크기로 사용한다.
+        /// 단위는 픽셀이다.
         /// </summary>
         public int Diameter { get; set; } = 160;
 
@@ -54,11 +54,11 @@
              * 표시 시간이 너무 짧으면 저프레임 영상에서
              * 포인터가 한 프레임도 보이지 않을 수 있다.
              */
-            if (VisibleMilliseconds < 100)
-                VisibleMilliseconds = 100;
+            if (VisibleMilliseconds < 250)
+                VisibleMilliseconds = 250;
 
-            if (VisibleMilliseconds > 5000)
-                VisibleMilliseconds = 5000;
+            if (VisibleMilliseconds > 800)
+                VisibleMilliseconds = 800;
         }
     }
 }
